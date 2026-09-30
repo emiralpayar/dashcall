@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Runs behind an HTTPS reverse proxy (see docs/Caddyfile.example), which sets X-Forwarded-For.
+      DASHCALL_TRUST_PROXY: "1"
+    # Only reachable from this host: put an HTTPS reverse proxy in front of it.
+    # If your proxy runs in Docker, you can instead drop `ports` and join its network.
+    ports:
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"

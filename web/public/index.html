@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b0d10">
+<title>Dashcall</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/style.css">
+</head><body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><img src="/icon.svg" width="28" height="28" alt=""><span>Dashcall</span><i id="conn" class="conn" data-i18n-title="conn.title"></i></div>
+    <nav class="tabs">
+      <button class="tab on" data-view="drive" data-i18n="tab.drive">Drive</button>
+      <button class="tab" data-view="sessions" data-i18n="tab.sessions">Sessions</button>
+      <button class="tab" data-view="new" data-i18n="tab.new">New job</button>
+      <button class="tab" data-view="brain" data-i18n="tab.brain">Brain</button>
+      <button class="tab tab-bell" data-view="notifs" data-i18n-aria-label="tab.notifs">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3a1.5 1.5 0 0 0-3 0v1.16A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
+        <b id="nbadge" class="nbadge" hidden></b>
+      </button>
+    </nav>
+    <div class="lang" role="group" data-i18n-aria-label="lang.label"><button type="button" data-lang="en">EN</button><button type="button" data-lang="tr">TR</button></div>
+  </header>
+
+  <main>
+    <!-- DRIVE -->
+    <section class="view" id="v-drive">
+      <div class="drive">
+        <div class="talk-wrap">
+          <button id="talk" class="talk" data-i18n-aria-label="drive.talk">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+          </button>
+          <div id="state" class="state"></div>
+          <div class="drive-row">
+            <button id="repeat" class="btn" data-i18n="drive.repeat">Replay</button>
+            <button id="newchat" class="btn ghost" data-i18n="drive.newChat">New chat</button>
+            <select id="voice" class="btn voice-select" data-i18n-aria-label="drive.voice"></select>
+          </div>
+        </div>
+        <div class="stage">
+          <div id="said" class="said"></div>
+          <div id="sub" class="subtitle idle"><span></span></div>
+          <div class="stage-actions">
+            <button id="resend" class="btn primary" hidden data-i18n="drive.resend">Resend</button>
+            <button id="showfull" class="btn ghost" hidden data-i18n="drive.showFull">Show text</button>
+            <button id="showlog" class="btn ghost" hidden data-i18n="drive.showLog">History</button>
+          </div>
+          <form id="typeform" class="typebox">
+            <input id="typein" data-i18n-placeholder="drive.typePlaceholder" autocomplete="off">
+            <button class="btn primary" data-i18n="common.send">Send</button>
+          </form>
+        </div>
+      </div>
+      <div id="sheet" class="sheet" hidden>
+        <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+          <div class="sheet-h"><h2 id="sheet-title"></h2><button id="sheet-close" class="btn ghost" data-i18n-aria-label="common.close">✕</button></div>
+          <div id="sheet-body" class="sheet-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SESSIONS -->
+    <section class="view" id="v-sessions" hidden>
+      <div id="list">
+        <div class="section-h"><h2 data-i18n="sessions.running">Running sessions</h2><button id="refresh" class="btn ghost" data-i18n="common.refresh">Refresh</button></div>
+        <div id="live" class="cards"></div>
+        <div class="section-h"><h2 data-i18n="sessions.recent">Last 48 hours</h2></div>
+        <div id="recent" class="cards"></div>
+        <div id="muted-wrap" hidden>
+          <div class="section-h"><h2 data-i18n="sessions.muted">Muted</h2></div>
+          <div id="mutedlist" class="cards"></div>
+        </div>
+      </div>
+      <div id="detail" hidden>
+        <div class="detail-h">
+          <button id="back" class="btn ghost" data-i18n="common.back">← Back</button>
+          <i id="d-dot" class="dot"></i>
+          <h2 id="d-title"></h2>
+          <button id="d-mute" class="btn ghost" data-i18n="sessions.mute">Mute</button>
+          <button id="d-esc" class="btn danger" data-i18n="sessions.stop">Stop (Esc)</button>
+        </div>
+        <pre id="screen" class="screen"></pre>
+        <form id="composer" class="composer">
+          <textarea id="d-text" data-i18n-placeholder="sessions.composer"></textarea>
+          <button type="button" class="btn mic" data-mic="d-text" data-i18n-aria-label="common.dictate"></button>
+          <button class="btn primary" style="height:56px" data-i18n="common.send">Send</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- NEW -->
+    <section class="view" id="v-new" hidden>
+      <form id="newform" class="form">
+        <h2 style="margin:0" data-i18n="new.title">Start a new job</h2>
+        <label for="n-dir" data-i18n="new.folder">Folder</label>
+        <select id="n-dir"></select>
+        <input id="n-custom" data-i18n-placeholder="new.customPath">
+        <label for="n-prompt" data-i18n="new.what">What should it do?</label>
+        <div class="row">
+          <textarea id="n-prompt" data-i18n-placeholder="new.task" style="min-height:160px"></textarea>
+          <button type="button" class="btn mic" data-mic="n-prompt" data-i18n-aria-label="common.dictate"></button>
+        </div>
+        <button id="n-go" class="btn primary big" data-i18n="new.start">Start</button>
+        <p class="err" id="n-err"></p>
+      </form>
+    </section>
+    <!-- BRAIN -->
+    <section class="view" id="v-brain" hidden>
+      <div class="brain">
+        <div>
+          <div class="section-h"><h2 data-i18n="brain.notes">Notes</h2></div>
+          <form id="noteform" class="row"><input id="note-in" data-i18n-placeholder="brain.addNote" autocomplete="off"><button type="button" class="btn mic" data-mic="note-in" data-i18n-aria-label="common.dictate"></button><button class="btn primary" data-i18n="common.add">Add</button></form>
+          <ul id="notes" class="items"></ul>
+        </div>
+        <div>
+          <div class="section-h"><h2 data-i18n="brain.memory">Memory</h2></div>
+          <form id="memform" class="row"><input id="mem-in" data-i18n-placeholder="brain.addMemory" autocomplete="off"><button class="btn primary" data-i18n="common.add">Add</button></form>
+          <ul id="memory" class="items"></ul>
+          <div class="section-h" style="margin-top:24px"><h2 data-i18n="brain.muted">Muted</h2></div>
+          <ul id="muted" class="items"></ul>
+        </div>
+      </div>
+    </section>
+    <!-- NOTIFICATIONS -->
+    <section class="view" id="v-notifs" hidden>
+      <div class="section-h"><h2 data-i18n="notifs.title">Notifications</h2><button id="nreadall" class="btn ghost" data-i18n="notifs.readAll">Mark all read</button></div>
+      <div id="nlist" class="nlist"></div>
+    </section>
+  </main>
+  <div id="npop" class="npop" hidden role="status" aria-live="polite">
+    <div class="npop-body"><div id="npop-title" class="npop-title"></div><div id="npop-text" class="npop-text"></div></div>
+    <div class="npop-actions"><button id="npop-open" class="btn primary" data-i18n="notifs.listen">Listen</button><button id="npop-close" class="btn ghost" data-i18n="notifs.later">Later</button></div>
+  </div>
+</div>
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+</body></html>

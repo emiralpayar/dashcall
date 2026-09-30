@@ -1,0 +1,25 @@
+# dependencies / runtimes
+node_modules/
+tts/.venv/
+
+# secrets (templates are committed as *.example)
+.env*
+!.env.example
+!*.env.example
+
+# large model files (download with scripts/download-model.sh)
+models/*
+!models/.gitkeep
+
+# personal runtime data: never commit
+dispatcher/brain/
+state/
+logs/
+*.log
+research/*
+!research/.gitkeep
+tts/*.mp3
+tts/sample.txt
+
+# OS / editor
+.DS_Store

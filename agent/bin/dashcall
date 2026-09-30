@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+// CLI used by the dispatcher Claude to inspect and drive herdr sessions, and to manage its brain.
+import * as L from '../lib.mjs';
+import * as B from '../brain.mjs';
+import * as S from '../store.mjs';
+
+const argv = process.argv.slice(2);
+const all = argv.includes('--all');
+const [cmd, ...rest] = argv.filter(a => a !== '--all');
+const out = x => console.log(typeof x === 'string' ? x : JSON.stringify(x, null, 1));
+const usage = `Usage: dashcall <command> [args]
+
+Sessions
+  sessions [--all]              running Claude Code sessions (muted ones hidden unless --all)
+  recent [hours] [--all]        sessions active in the last N hours (default 48), including finished ones
+  screen <pane> [lines]         recent terminal output of a session
+  last <pane>                   the session's full last assistant message
+  send <pane> <text...>         send a prompt to a session (also unmutes it)
+  keys <pane> <key...>          send keys: esc (interrupt), enter, ctrl+c, up, down, tab, shift+tab, 1-3
+  new <dir> <prompt...>         start a new session in <dir> (~/name works) with the prompt
+  dirs                          project folders under DASHCALL_WORKSPACE_ROOT, most recently modified first
+
+Background tasks (the result arrives later as a notification that you summarize)
+  task <dir> <prompt...>        start a new session in <dir> AND watch it until it finishes
+  watch <pane> [label...]       watch an existing session until it finishes its current work
+  watches                       background tasks still running
+  unwatch <id>                  stop watching
+
+Brain
+  brain                         show memory, open notes and the muted list
+  remember <text...>            store a long-term fact or preference
+  note <text...>                add a note / reminder for the user
+  notes [--all]                 list open notes (--all includes done ones)
+  done <note-id>                mark a note done
+  forget <id|mute-key>          delete a memory, note or mute
+  mute <sessionId|folder> [label...]   stop mentioning a session (by id) or a whole project (by folder name)
+  unmute <key>                  same as forget, for mutes
+
+  help                          show this help`;
+
+const lang = process.env.DASHCALL_LANGUAGE || null; // the language the user was speaking when the task was started
+const hideMuted = list => all ? list : list.filter(s => !s.muted);
+
+try {
+  switch (cmd) {
+    case 'sessions': out(hideMuted(await L.listSessions()).filter(s => !L.isDispatcher(s))); break;
+    case 'recent': out(hideMuted(await L.recentTranscripts(Number(rest[0]) || 48, 25))
+      .filter(s => !L.isDispatcher(s))
+      .map(s => ({ ...s, lastUser: s.lastUser && L.clip(s.lastUser.text, 400), lastAssistant: s.lastAssistant && L.clip(s.lastAssistant.text, 800) }))); break;
+    case 'screen': out(await L.readScreen(rest[0], Number(rest[1]) || 120)); break;
+    case 'last': {
+      const s = (await L.listSessions()).find(x => x.pane === rest[0]);
+      const t = s?.sessionId && await L.transcriptSummary(s.sessionId);
+      out(t?.lastAssistant?.text || '(no assistant message)'); break;
+    }
+    case 'send': {
+      const text = rest.slice(1).join(' ').trim();
+      if (!rest[0] || !text) throw new Error('usage: dashcall send <pane> <text...>');
+      out(await L.promptSession(rest[0], text)); break;
+    }
+    case 'keys': {
+      const keys = rest.slice(1), bad = keys.filter(k => !L.ALLOWED_KEYS.has(k));
+      if (!rest[0] || !keys.length || bad.length) throw new Error(`usage: dashcall keys <pane> <key...> (allowed: ${[...L.ALLOWED_KEYS].join(' ')})`);
+      out(await L.sendKeys(rest[0], keys)); break;
+    }
+    case 'new': out(await L.startSession(rest[0], rest.slice(1).join(' '))); break;
+    case 'task': {
+      const r = await L.startSession(rest[0], rest.slice(1).join(' '));
+      const p = await L.herdr(['pane', 'get', r.pane]).catch(() => null);
+      out(S.addWatch({ pane: r.pane, cwd: r.cwd, label: L.clip(rest.slice(1).join(' '), 90), sessionId: p?.result?.pane?.agent_session?.value || null,
+        jobId: process.env.DASHCALL_JOB_ID || null, conversationId: process.env.DASHCALL_CONVERSATION_ID || null, lang }));
+      break;
+    }
+    case 'watch': {
+      const p = await L.herdr(['pane', 'get', rest[0]]);
+      const pane = p?.result?.pane;
+      if (pane?.agent !== 'claude') throw new Error('no claude session in pane ' + rest[0]);
+      out(S.addWatch({ pane: rest[0], cwd: pane.foreground_cwd || pane.cwd, label: rest.slice(1).join(' ') || pane.terminal_title_stripped || rest[0],
+        sessionId: pane.agent_session?.value || null, sawWorking: pane.agent_status === 'working',
+        jobId: process.env.DASHCALL_JOB_ID || null, conversationId: process.env.DASHCALL_CONVERSATION_ID || null, lang }));
+      break;
+    }
+    case 'watches': out(S.read('watches').filter(w => w.state === 'waiting')); break;
+    case 'unwatch': out(S.update('watches', l => { const w = l.find(x => x.id === rest[0]); if (!w) throw new Error('no such watch'); w.state = 'cancelled'; return w; })); break;
+    case 'dirs': out((await L.listDirs()).map(d => d.path).join('\n')); break;
+    case 'brain': out(B.asPrompt()); break;
+    case 'remember': out(B.remember(rest.join(' '))); break;
+    case 'note': out(B.addNote(rest.join(' '))); break;
+    case 'notes': out(B.load().notes.filter(n => all || !n.done)); break;
+    case 'done': out(B.noteDone(rest[0])); break;
+    case 'forget': case 'unmute': out(B.forget(rest[0])); break;
+    case 'mute': if (!rest[0]) throw new Error('mute needs a session id or folder'); out(B.mute(rest[0], rest.slice(1).join(' '))); break;
+    case undefined: case 'help': case '--help': case '-h': out(usage); break;
+    default: console.error(`unknown command: ${cmd}\n`); console.error(usage); process.exit(1);
+  }
+} catch (e) { console.error('ERROR:', e.message); process.exit(1); }

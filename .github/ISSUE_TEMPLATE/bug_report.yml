@@ -1,0 +1,71 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check [Troubleshooting](https://github.com/emiralpayar/dashcall/blob/main/docs/TROUBLESHOOTING.md) first.
+        **Security problems must not be reported here**: use [private vulnerability reporting](https://github.com/emiralpayar/dashcall/security/advisories/new).
+        Remove tokens, passwords, hostnames, IPs and private conversation content from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Drive mode
+        2. Ask "..."
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part is affected?
+      multiple: true
+      options:
+        - Web app / UI
+        - Agent (Mac)
+        - Dispatcher replies
+        - Speech-to-text
+        - Voices / text-to-speech
+        - Background tasks / notifications
+        - Demo mode
+        - Install / docs
+    validations:
+      required: true
+  - type: dropdown
+    id: lang
+    attributes:
+      label: App language
+      options:
+        - English
+        - Turkish
+        - Both / not relevant
+  - type: input
+    id: version
+    attributes:
+      label: Dashcall version or commit
+      placeholder: "v0.1.0 or the output of: git rev-parse --short HEAD"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: macOS version, Node version (`node --version`), herdr and Claude Code versions, browser and device (e.g. iPhone Safari, Tesla browser), Docker or `npm run web`, reverse proxy.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `logs/agent.log` and `docker compose logs`, and the error code shown in the app. Remove private content.
+      render: text

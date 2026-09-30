@@ -1,0 +1,6 @@
+# HTTPS in front of the Dashcall web container (docker-compose publishes it on 127.0.0.1:8080).
+# Replace the domain; Caddy gets a certificate automatically once DNS points at this server.
+# Caddy forwards the original Host header, which the web app's same-origin check needs.
+dashcall.example.com {
+	reverse_proxy 127.0.0.1:8080
+}

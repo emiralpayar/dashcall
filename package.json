@@ -1,0 +1,30 @@
+{
+  "name": "dashcall",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Talk to your Claude Code sessions from your phone or car: voice or touch, in English or Turkish",
+  "keywords": ["claude", "claude-code", "voice", "assistant", "herdr", "speech-to-text", "text-to-speech", "whisper", "pwa"],
+  "homepage": "https://github.com/emiralpayar/dashcall#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emiralpayar/dashcall.git"
+  },
+  "bugs": {
+    "url": "https://github.com/emiralpayar/dashcall/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "dashcall": "agent/bin/dashcall"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "agent": "node --env-file=.env agent/server.mjs",
+    "web": "node --env-file=web/.env web/server.mjs",
+    "demo": "node scripts/demo.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node --test"
+  }
+}

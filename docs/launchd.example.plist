@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps the Dashcall agent running on your Mac (see docs/INSTALL.md, "Run the agent at login").
+  Replace every /path/to and REPLACE_ME, then:
+    mkdir -p logs
+    cp docs/launchd.example.plist ~/Library/LaunchAgents/com.dashcall.agent.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dashcall.agent.plist
+  Restart after changes:  launchctl kickstart -k gui/$(id -u)/com.dashcall.agent
+  Stop and remove:        launchctl bootout gui/$(id -u)/com.dashcall.agent
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.dashcall.agent</string>
+  <key>ProgramArguments</key><array>
+    <!-- output of `which node`, e.g. /opt/homebrew/opt/node@22/bin/node -->
+    <string>/path/to/node</string>
+    <string>--env-file=/path/to/dashcall/.env</string>
+    <string>/path/to/dashcall/agent/server.mjs</string>
+  </array>
+  <key>WorkingDirectory</key><string>/path/to/dashcall</string>
+  <key>EnvironmentVariables</key><dict>
+    <!-- launchd starts with a minimal PATH: include where claude, herdr, ffmpeg and whisper-cli live
+         (check with `which claude herdr ffmpeg whisper-cli`) -->
+    <key>PATH</key><string>/Users/REPLACE_ME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key><string>en_US.UTF-8</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/path/to/dashcall/logs/agent.log</string>
+  <key>StandardErrorPath</key><string>/path/to/dashcall/logs/agent.log</string>
+</dict></plist>
