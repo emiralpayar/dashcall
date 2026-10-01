@@ -45,6 +45,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   silence and noise never reach whisper ("Altyazı M.K.", "Thank you.", "you"). whisper also runs without non-speech
   tokens and without feeding its own text back, and the agent drops known silence hallucinations and a sentence
   sequence whisper repeated. A recording of only "thank you" now comes back empty on purpose.
+- **One answer at a time per conversation:** a background-task summary and a live question in the same
+  conversation no longer run two `claude -p --resume` processes on one transcript; they queue in order. `POST
+  /api/ask` takes an optional `requestId`, so a retried request returns the job it already started. Usage-limit,
+  login and overload errors are spoken as a short sentence in the reply's language, with Claude's text in `detail`.
 - **Web app voice flow:** a question whose job the agent forgot (it restarted) stops at once with a clear message
   instead of "thinking" for 5 minutes, and every question carries a `requestId` so a retried POST can't ask twice. A
   question queued behind an earlier job of its conversation says "Waiting for the previous answer" and gets its full
@@ -66,6 +70,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Logins expire and can be revoked:** a login now lasts `DASHCALL_SESSION_DAYS` (30) days after the device last
   used the app, instead of a fixed year, and raising `DASHCALL_SESSION_EPOCH` signs out every device.
 - The CSP no longer allows inline styles (`style-src 'self'`).
+- **The dispatcher may only run the `dashcall` CLI:** it no longer runs with `--dangerously-skip-permissions`. Bash
+  is its only tool and is limited to `dashcall …` commands (`--permission-mode dontAsk`, no MCP servers, no reads
+  outside `dispatcher/`), and `DASHCALL_TOKEN` is removed from its environment. `DASHCALL_DISPATCH_UNRESTRICTED=1`
+  brings back the old run for debugging; it is unsafe. The flags need a recent Claude Code (`claude update`).
 
 ## [0.1.0] - 2026-09-30
 

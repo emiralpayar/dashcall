@@ -146,8 +146,9 @@ okuması için `[[PR|pi ar]]` gibi bir telaffuz işaretiyle yazar; altyazıda ya
 **Kurmadan önce oku.** Girişi geçen herkes, Claude Code üzerinden Mac'inde istediği komutu çalıştırabilir. Tek koruma
 şifrendir.
 
-- Dispatcher, `dashcall` CLI'yı gözetimsiz kullanabilmek için `--dangerously-skip-permissions` ile çalışır. Okuduğu
-  metinler (oturum çıktıları, araştırma sonuçları, yanlış anlaşılmış bir ses kaydı) prompt injection içerebilir.
+- Dispatcher yalnızca `dashcall` CLI'yı çalıştırabilir. Okuduğu metinler (oturum çıktıları, araştırma sonuçları,
+  yanlış anlaşılmış bir ses kaydı) prompt injection içerebilir ve bunlar `dashcall` üzerinden oturumlarına hâlâ yazı
+  yazabilir, tuşa basabilir ve yeni oturum açabilir.
 - Agent'ı özel bir ağda (Tailscale) tut, asla internete açma. Her istek bearer token gerektirir.
 - Web uygulamasında isteğe bağlı iki adımlı doğrulamalı (`DASHCALL_TOTP_SECRET`) hız sınırlı şifre girişi, 30 gün
   kullanılmayınca geçersizleşen imzalı HttpOnly çerezler, API yazma isteklerinde aynı köken kontrolü ve sıkı bir

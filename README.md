@@ -156,8 +156,9 @@ The first visit follows your browser's language. Adding a language is a well-sco
 **Read this before deploying.** Anyone who gets past the login can run arbitrary commands on your Mac through Claude
 Code. The password is the whole perimeter.
 
-- The dispatcher runs with `--dangerously-skip-permissions` so it can use the `dashcall` CLI unattended. Text it reads
-  (session output, research results, a misheard transcript) can contain prompt injections.
+- The dispatcher may only run the `dashcall` CLI. Text it reads (session output, research results, a misheard
+  transcript) can contain prompt injections, and through `dashcall` those can still type into your sessions, press
+  keys in them and start new ones.
 - Keep the agent on a private network (Tailscale) and never expose it publicly. Every request needs the bearer token.
 - The web app has a rate-limited password login with optional two-factor codes (`DASHCALL_TOTP_SECRET`), signed
   HttpOnly cookies that expire after 30 days without use, same-origin checks on API writes and a strict Content
