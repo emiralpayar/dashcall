@@ -38,6 +38,18 @@ test('addWatch() applies defaults that callers can override', () => {
   assert.equal(S.update('watches', l => l.length), 1);
 });
 
+test('addWatch() keeps every waiting watch but only the latest finished ones', () => {
+  const finished = Array.from({ length: 70 }, (_, i) => ({ id: 'f' + i, state: i % 2 ? 'fired' : 'cancelled' }));
+  const before = [{ id: 'w1', state: 'waiting' }, ...finished.slice(0, 41), { id: 'w2', state: 'waiting' }, ...finished.slice(41)];
+  S.update('watches', l => { l.splice(0, l.length, ...before); });
+  const w = S.addWatch({ pane: 'p2' });
+  // the oldest 20 finished ones go; everything else stays, in order
+  const latest = finished.slice(-S.KEEP_FINISHED_WATCHES);
+  const expected = before.filter(x => x.state === 'waiting' || latest.includes(x)).map(x => x.id).concat(w.id);
+  assert.deepEqual(S.read('watches').map(x => x.id), expected);
+  assert.equal(S.read('watches').filter(x => x.state !== 'waiting').length, 50);
+});
+
 test('two processes updating the same file concurrently lose nothing', async () => {
   const { spawn } = await import('node:child_process');
   const script = `const S = await import(${JSON.stringify(new URL('../agent/store.mjs', import.meta.url).href)});
