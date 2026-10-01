@@ -26,7 +26,7 @@ and exits with status 1.
 | `dashcall send <pane> <text...>` | Send a prompt to a session. This also unmutes it. The text is required; an empty one is a usage error. |
 | `dashcall keys <pane> <key...>` | Send keys: `esc` (interrupt), `enter`, `ctrl+c`, `up`, `down`, `tab`, `shift+tab`, `1`, `2`, `3`. Only these keys are accepted, the same list as the API; anything else is a usage error that lists them. |
 | `dashcall new <dir> <prompt...>` | Start a new Claude Code session in `<dir>` (`~/name` works) and give it the prompt |
-| `dashcall dirs` | Folders directly under `DASHCALL_WORKSPACE_ROOT` (default: your home directory), most recently modified first |
+| `dashcall dirs` | Folders directly under `DASHCALL_WORKSPACE_ROOT` (default: your home directory), plus the subfolders of folders that hold only folders (such as `~/development/agent-arena`), most recently modified first |
 
 The dispatcher's own sessions are always left out.
 

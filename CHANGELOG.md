@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The dispatcher could not start a session in any folder: `dashcall new ~/project …` was denied because the
+  `blockReadsOutsideWorkingDirectories` setting also refuses allowed commands whose arguments name a path outside
+  `dispatcher/`. The setting is gone; Claude Code still keeps read-only commands inside `dispatcher/` by default.
+- `dashcall dirs` and the New job folder list now include projects inside folders that hold only folders, such as
+  `~/development/agent-arena`.
+
 ## [0.2.0] - 2026-10-01
 
 A hardening release. The dispatcher can only run the `dashcall` CLI, the web login gets optional one-time codes and

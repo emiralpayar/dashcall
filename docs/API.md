@@ -126,8 +126,10 @@ Errors: `folder_not_found`, `folder_outside_root`, `session_start_failed`.
 
 #### `GET /api/dirs`
 
-Folders directly under `DASHCALL_WORKSPACE_ROOT` (default: your home directory), most recently modified first. System folders such as Library, Documents
-and Downloads are skipped, as are hidden folders. Returns `{"dirs": [{"name", "path", "mtime"}]}`.
+Folders directly under `DASHCALL_WORKSPACE_ROOT` (default: your home directory), most recently modified first. A folder that
+holds only folders (such as `~/development`) is a container: its subfolders are listed too, named like
+`development/agent-arena`. System folders such as Library, Documents and Downloads are skipped, as are hidden folders,
+`node_modules` and `.app` bundles. Returns `{"dirs": [{"name", "path", "mtime"}]}`.
 
 ### Dispatcher
 

@@ -5,7 +5,9 @@ import path from 'node:path';
 // The dispatcher reads untrusted text (session screens, transcripts, research results), so a prompt injection must not
 // be able to run anything but the dashcall CLI. In dontAsk mode whatever isn't allowed is denied instead of prompting.
 // Claude Code checks each part of `a && b`, `a; b`, `a | b` and `$(…)` on its own, so only dashcall and its built-in
-// read-only commands (head, grep, …) pass; blockReadsOutsideWorkingDirectories keeps those inside dispatcher/.
+// read-only commands (head, grep, …) pass, and those can't read outside dispatcher/ (Claude Code's default).
+// Don't add permissions.blockReadsOutsideWorkingDirectories: it also denies every allowed command whose arguments name
+// an existing path outside dispatcher/, so `dashcall new ~/project …` was refused (outside reads stay denied without it).
 // `unrestricted` is the documented escape hatch (DASHCALL_DISPATCH_UNRESTRICTED=1): the old skip-permissions run.
 export function dispatcherArgs({ text, conversationId, model, systemPrompt, root, unrestricted = false }) {
   // Claude Code also loads CLAUDE.md files from parent folders: keep the repo's contributor guide out of the dispatcher.
@@ -15,7 +17,6 @@ export function dispatcherArgs({ text, conversationId, model, systemPrompt, root
   if (unrestricted) args.push('--dangerously-skip-permissions');
   else {
     args.push('--permission-mode', 'dontAsk', '--tools', 'Bash', '--allowedTools', 'Bash(dashcall:*)', '--strict-mcp-config');
-    settings.permissions = { blockReadsOutsideWorkingDirectories: true };
   }
   args.push('--settings', JSON.stringify(settings));
   if (conversationId) args.push('--resume', conversationId);

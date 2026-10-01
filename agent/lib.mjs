@@ -237,15 +237,23 @@ export async function startSession(cwd, prompt, label) {
   return { pane, cwd };
 }
 
-// Project folders directly under WORKSPACE_ROOT (the only place new sessions may start), newest first.
+// Project folders under WORKSPACE_ROOT (the only place new sessions may start), newest first. A folder that holds
+// only folders (e.g. ~/development) is a container: its subfolders are listed too, as "development/agent-arena".
 export async function listDirs() {
   const skip = new Set(['Applications', 'Desktop', 'Documents', 'Downloads', 'Library', 'Movies', 'Music', 'Pictures', 'Public']);
+  const visible = e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && !e.name.endsWith('.app');
   const ents = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
-  const dirs = ents.filter(e => e.isDirectory() && !e.name.startsWith('.') && !skip.has(e.name) && !e.name.endsWith('.app'));
-  const withTime = await Promise.all(dirs.map(async e => {
-    const p = path.join(WORKSPACE_ROOT, e.name);
+  const found = [];
+  await Promise.all(ents.filter(e => visible(e) && !skip.has(e.name)).map(async e => {
+    found.push(e.name);
+    const inner = await readdir(path.join(WORKSPACE_ROOT, e.name), { withFileTypes: true }).catch(() => []);
+    const shown = inner.filter(x => !x.name.startsWith('.'));
+    if (shown.length && shown.every(x => x.isDirectory())) for (const x of shown.filter(visible)) found.push(path.join(e.name, x.name));
+  }));
+  const withTime = await Promise.all(found.map(async name => {
+    const p = path.join(WORKSPACE_ROOT, name);
     const s = await stat(p);
-    return { name: e.name, path: p, mtime: s.mtimeMs };
+    return { name, path: p, mtime: s.mtimeMs };
   }));
   return withTime.sort((a, b) => b.mtime - a.mtime);
 }

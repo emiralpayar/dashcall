@@ -58,7 +58,7 @@ rest: the title, the last user prompt and the last assistant message.
    claude -p <text> --output-format json --model <DASHCALL_DISPATCH_MODEL>
           --append-system-prompt <current time, reply language, research folder, brain>
           --permission-mode dontAsk --tools Bash --allowedTools "Bash(dashcall:*)" --strict-mcp-config
-          --settings {"claudeMdExcludes":[...],"permissions":{"blockReadsOutsideWorkingDirectories":true}}
+          --settings {"claudeMdExcludes":[...]}
           [--resume <conversationId>]
    ```
 
@@ -234,7 +234,7 @@ enforces that, whatever the model is talked into:
 | `--tools Bash` | Bash is the only built-in tool: no file editing, web fetching or subagents. |
 | `--allowedTools "Bash(dashcall:*)"` | Bash runs `dashcall …` commands only. |
 | `--strict-mcp-config` | No MCP servers. |
-| `blockReadsOutsideWorkingDirectories` (in `--settings`) | Claude Code's built-in read-only commands (`cat`, `ls`, …), which run without approval, can't read outside `dispatcher/`. |
+| (Claude Code's default) | Its built-in read-only commands (`cat`, `ls`, …), which run without approval, can't read outside `dispatcher/`. Don't add `blockReadsOutsideWorkingDirectories`: it also refuses allowed commands whose arguments name an existing path outside `dispatcher/`, such as `dashcall new ~/project`. |
 
 Claude Code checks every part of a compound command on its own. Checked against Claude Code 2.1.286:
 
