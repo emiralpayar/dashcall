@@ -90,7 +90,7 @@ playing after the first sentence.
   limit starts once it runs ([#6]).
 - The full-text sheet opens from any tab, keeps keyboard focus inside while open and gives it back on close. The
   session view fits the screen, with the reply box always visible ([#5]).
-- The docs use Homebrew's current formula name, `whisper.cpp` (`whisper-cpp` still works as an alias).
+- The docs use Homebrew's current formula name, `whisper.cpp` (`whisper-cpp` still works as an alias) ([#11]).
 
 ### Fixed
 
@@ -113,7 +113,7 @@ playing after the first sentence.
 - **Subtitles** ([#3], [#9]): an emoji no longer shifts the timing of later lines; a word that contains the next one
   ("this", "is") no longer swallows it; punctuation the voice reads inside a path no longer stops the alignment; and
   words are matched in the answer's language, so Turkish I/ı line up while the app is in English and the other way
-  round. **Replay** now also speaks the last answer in its own language after you switch languages.
+  round. **Replay** now also speaks the last answer in its own language after you switch languages ([#11]).
 - **Sessions** ([#2]): a folder named `..x` inside the workspace root can be used for a new session, a long
   transcript keeps the title the agent already found once it scrolls out of the part the agent reads, and prompting
   a session no longer rewrites `brain.json` when it wasn't muted.
@@ -186,3 +186,4 @@ First public release.
 [#7]: https://github.com/emiralpayar/dashcall/pull/7
 [#8]: https://github.com/emiralpayar/dashcall/pull/8
 [#9]: https://github.com/emiralpayar/dashcall/pull/9
+[#11]: https://github.com/emiralpayar/dashcall/pull/11
