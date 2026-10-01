@@ -269,7 +269,7 @@ unmuted. Errors: `key_required`, `not_found`.
 | Method and path | Auth | Description |
 | --- | --- | --- |
 | `GET /healthz` | none | Returns `ok` (plain text). For uptime checks and load balancers. |
-| `POST /login` | same-origin | Body `{"password": "…", "code": "123456"}` (`code` only with two-factor login; spaces are ignored). On success, sets the `dashcall` cookie (HttpOnly, `Secure` unless `DASHCALL_COOKIE_SECURE=0`, `SameSite=Lax`, valid for `DASHCALL_SESSION_DAYS` days) and returns `{"ok": true}`. Errors: `cross_origin`, `rate_limited`, `bad_password`, or with two-factor login `bad_login` and `code_used`. |
+| `POST /login` | same-origin | Body `{"password": "…", "code": "123456"}` (`code` only with two-factor login; anything but digits, such as spaces or dashes, is ignored). On success, sets the `dashcall` cookie (HttpOnly, `Secure` unless `DASHCALL_COOKIE_SECURE=0`, `SameSite=Lax`, valid for `DASHCALL_SESSION_DAYS` days) and returns `{"ok": true}`. Errors: `cross_origin`, `rate_limited`, `bad_password`, or with two-factor login `bad_login` and `code_used`. |
 | `GET /login/config` | none | `{"totp": true}` when two-factor login is on (`DASHCALL_TOTP_SECRET`), so the login page shows the code field. |
 | `POST /logout` | same-origin | Clears the session cookie (204). |
 | `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent. Errors: `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |

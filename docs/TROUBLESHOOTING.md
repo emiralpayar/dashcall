@@ -23,7 +23,10 @@ the cookie is dropped.
 After 10 failed logins from one IP in 15 minutes, logins from that IP are blocked until the window passes. If
 *everyone* is blocked at once, either someone made 30 failed attempts from different IPs (the global limit; the web
 app logs every `login failed`), or the web app is seeing your proxy's IP instead of the clients'. For the latter, set
-`DASHCALL_TRUST_PROXY=1` (the compose file already does) and make sure the proxy sets `X-Forwarded-For`.
+`DASHCALL_TRUST_PROXY=1` (the compose file already does) and make sure the proxy sets `X-Forwarded-For`. For an
+attack, block the IPs from those log lines at Caddy or your firewall and restart the web app to clear the counters.
+Devices that are already logged in keep working, so don't raise `DASHCALL_SESSION_EPOCH` or change the password
+until the attack stops.
 
 ### The one-time code is always rejected
 

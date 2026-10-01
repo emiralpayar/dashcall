@@ -83,7 +83,10 @@ has to log in again. Changing `DASHCALL_PASSWORD`, `DASHCALL_SECRET` or `DASHCAL
 
 Failed logins are limited to 10 per client IP and 30 in total (from all IPs together) per 15 minutes. After that the
 app answers `rate_limited` until the window passes; the global limit means that during an attack from many addresses
-nobody can log in for a while, but devices that are already logged in keep working.
+nobody can log in for a while, but devices that are already logged in keep working. If it keeps happening, block the
+addresses from the web app's `login failed` log lines at your reverse proxy or firewall; restarting the web app clears
+the counters. Don't sign out everywhere (or change the password) while the limit is being hit: no device could log
+back in until the attack stops.
 
 ### Two-factor login
 

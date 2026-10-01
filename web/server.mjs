@@ -182,7 +182,8 @@ async function handle(req, res) {
     if (TOTP_KEY) {
       // One answer for a wrong password and a wrong code, so the password can't be guessed without the code. A reused
       // code is reported whatever the password was, so that answer gives nothing away either.
-      const step = totpStep(TOTP_KEY, String(code).replace(/\s/g, ''));
+      // Apps and password managers show codes as "123 456" or "123-456": only the digits matter.
+      const step = totpStep(TOTP_KEY, String(code).replace(/\D/g, ''));
       if (step >= 0 && step <= lastTotpStep) {
         log('login failed (one-time code reused)', ip);
         return fail(res, 401, 'code_used', 'this code was already used, wait for the next one');

@@ -98,10 +98,14 @@ test('static files cannot escape public/', async () => {
   assert.equal(r.status, 404);
 });
 
+// The rate-limit tests get their own web app: failures on `base` would eat into its global budget (30 per 15 minutes)
+// and make unrelated tests fail with 429 depending on their order.
 test('login is rate limited per client IP', async () => {
-  for (let i = 0; i < 10; i++) await login('wrong', '10.9.9.9');
-  await assertError(await login(PASSWORD, '10.9.9.9'), 429, 'rate_limited');
-  assert.equal((await login(PASSWORD, '10.9.9.8')).status, 200);
+  await withWeb({}, async b => {
+    for (let i = 0; i < 10; i++) await postLogin(b, { password: 'wrong' }, '10.9.9.9');
+    await assertError(await postLogin(b, { password: PASSWORD }, '10.9.9.9'), 429, 'rate_limited');
+    assert.equal((await postLogin(b, { password: PASSWORD }, '10.9.9.8')).status, 200);
+  });
 });
 
 test('oversized API requests are refused', async () => {
@@ -131,10 +135,12 @@ test('an unreachable agent is reported as agent_unreachable', async () => {
 });
 
 test('parallel login attempts cannot get around the rate limit', async () => {
-  const results = await Promise.all(Array.from({ length: 30 }, () => login('wrong', '10.7.7.7')));
-  const statuses = results.map(r => r.status);
-  assert.equal(statuses.filter(s => s === 401).length, 10);
-  assert.equal(statuses.filter(s => s === 429).length, 20);
+  await withWeb({}, async b => {
+    const results = await Promise.all(Array.from({ length: 30 }, () => postLogin(b, { password: 'wrong' }, '10.7.7.7')));
+    const statuses = results.map(r => r.status);
+    assert.equal(statuses.filter(s => s === 401).length, 10);
+    assert.equal(statuses.filter(s => s === 429).length, 20);
+  });
 });
 
 test('an agent that rejects our token is a 502 agent_auth, not a logout', async () => {
@@ -239,8 +245,8 @@ test('with DASHCALL_TOTP_SECRET, login needs a one-time code that works only onc
 
     await assertError(await as({ password: PASSWORD, code }), 401, 'code_used');
     const next = hotp(key, t0 + 1);
-    assert.equal((await as({ password: PASSWORD, code: `${next.slice(0, 3)} ${next.slice(3)}` })).status, 200, 'the next code, typed with a space');
-    await assertError(await as({ password: 'wrong', code }), 401, 'code_used');
+    assert.equal((await as({ password: PASSWORD, code: `${next.slice(0, 3)}-${next.slice(3)}` })).status, 200, 'the next code, typed as 123-456');
+    await assertError(await as({ password: 'wrong', code: `${code.slice(0, 3)} ${code.slice(3)}` }), 401, 'code_used', 'typed as 123 456');
 
     await assertError(await health(b, cookieOf(await login(PASSWORD))), 401, 'login_required', 'turning on 2FA signs out older logins');
     // one-time-code failures count toward the rate limit: 5 so far from this IP, 10 allowed
