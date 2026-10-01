@@ -157,6 +157,27 @@ login prompt (run `claude` once by hand), a slow shell startup, or a wrong `DASH
 The folder isn't under `DASHCALL_WORKSPACE_ROOT` (default: your home directory). Symlinks are resolved first, so a
 link inside the root that points outside it is refused too.
 
+## The brain or notifications suddenly look empty
+
+Look for `warning:` lines in the agent log, and for `.corrupt-…` files next to `dispatcher/brain/brain.json` or in
+`state/`. Usually the brain was edited by hand and is no longer valid JSON. Dashcall never writes over a file it can't
+read:
+
+- `warning: ignoring <file> (<reason>)`: until the file parses again, it reads as empty. The file itself is untouched,
+  so fixing the JSON (the reason says where it breaks) brings everything back.
+- `warning: <file> was unusable (<reason>); moved it to <file>.corrupt-<time>`: something was saved in the meantime,
+  so your copy was moved aside and a new file started. When the `dashcall` CLI made that change, only the dispatcher
+  saw the warning, and the `.corrupt-…` file is what you'll find. Fix the JSON in that copy and merge its entries back
+  into the new file, or move it back if the new one holds nothing you need.
+
+### `timed out waiting for <file>.lock`
+
+Every change to these files holds a lock file next to them that contains the writer's process ID. A lock whose
+process is gone is removed straight away, and one older than 3 seconds counts as abandoned, so this error means a
+`<file>.lock` is there that can't be read or removed: a folder with that name, a file the agent's user can't read, or
+a lock in a folder that user can't write to. When no `dashcall` command is running, delete `<file>.lock` by hand and
+fix the permissions.
+
 ## Microphone and audio in the browser
 
 ### The microphone button does nothing, or permission is never asked

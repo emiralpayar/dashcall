@@ -76,4 +76,6 @@ and shown under "Muted" in the app. Sending a session a prompt removes its sessi
 stay until you remove them.
 
 Items get short random IDs, such as `a1b2c3`. The file is plain JSON, so you can back it up, or edit it while the agent
-isn't writing to it.
+isn't writing to it. If an edit leaves it invalid, nothing is lost: the brain reads as empty (with a warning) until you
+fix it, and the next change moves your copy to `brain.json.corrupt-<time>` instead of overwriting it
+([recovering it](TROUBLESHOOTING.md#the-brain-or-notifications-suddenly-look-empty)).
