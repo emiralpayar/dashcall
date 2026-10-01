@@ -118,12 +118,17 @@ Everything personal stays on the Mac, inside the repo folder, and is git-ignored
 | --- | --- | --- |
 | `dispatcher/brain/brain.json` (`DASHCALL_BRAIN_FILE`) | Agent, `dashcall` CLI | `{memory[], notes[], muted[]}`: facts about you, your notes and reminders, muted sessions and projects |
 | `state/notifications.json` (`DASHCALL_STATE_DIR`) | Agent | The last 200 answers and summaries, including your questions |
-| `state/watches.json` | Agent, `dashcall` CLI | Background tasks: waiting, fired or cancelled |
+| `state/watches.json` | Agent, `dashcall` CLI | Background tasks: every waiting one, plus the last 50 fired or cancelled |
 | `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors. Questions and transcripts only with `DASHCALL_LOG_CONTENT=1`. |
 | `research/` | Sessions started for research | The dispatcher's default folder for research that belongs to no project |
 | `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them). The dispatcher's own conversations are stored here too. |
 
-Files are written atomically (a temporary file, then a rename), so the agent and the CLI can both write them safely.
+Files are written atomically (a temporary file, flushed to disk, then a rename), and every change holds a lock file
+next to the file (`<file>.lock`, containing the writer's process ID), so the agent and the CLI can both write them
+safely. A lock left by a crashed process is removed as soon as that process is gone, and any lock older than 3 seconds
+counts as abandoned. A file that isn't valid JSON, such as a hand-edited brain with a typo, is never written over:
+reads treat it as empty and log a warning, and the next change moves it to `<file>.corrupt-<time>` before starting a
+new one ([recovering it](TROUBLESHOOTING.md#the-brain-or-notifications-suddenly-look-empty)).
 
 What leaves the Mac:
 
