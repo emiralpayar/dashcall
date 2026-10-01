@@ -12,6 +12,7 @@ process.env.DASHCALL_HERDR_BIN = fakeHerdr;
 // a fake home: it is the workspace root and holds ~/.claude/projects, so no real transcript is ever read
 const home = tempDir();
 process.env.HOME = home;
+process.env.DASHCALL_WORKSPACE_ROOT = home; // overrides HOME as the root, so a value from the developer's shell must not leak in
 const L = await import('../agent/lib.mjs');
 const B = await import('../agent/brain.mjs');
 

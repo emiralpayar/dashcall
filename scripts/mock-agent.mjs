@@ -158,7 +158,8 @@ const brain = {
   ],
   muted: [{ id: id(), key: 'legacy-dashboard', label: 'legacy-dashboard', reason: L10N('archived project', 'arşivlenmiş proje'), ts: ago(12 * 86400) }],
 };
-// like the agent: a session id, or a folder name matched against whole path segments; mutedBy is the key to forget
+// a simplified agent: a session id, or a single folder name matched as a whole path segment (path keys and
+// "code/api"-style names never match here); mutedBy is the key to forget
 const mutedFields = s => { const m = brain.muted.find(m => m.key === s.sessionId || (s.cwd && s.cwd.toLowerCase().split('/').includes(m.key.toLowerCase()))); return { muted: !!m, mutedBy: m?.key ?? null }; };
 
 const notifications = [ // oldest first (the API returns them newest first)

@@ -510,9 +510,10 @@ $('d-mute').onclick = async () => {
   const s = openSession; if (!s?.sessionId) return;
   try {
     if (s.muted) {
-      // the agent names the mute that matched (this session's id or a folder); not_found means it is already gone
+      // the agent names the mute that matched (this session's id or a folder); not_found then means it is already gone.
+      // An older agent sends no mutedBy: the session id is only a guess, so a miss there must not look like success.
       await api('/brain/forget', { method: 'POST', body: JSON.stringify({ key: s.mutedBy || s.sessionId }) })
-        .catch(e => { if (e.code !== 'not_found') throw e; });
+        .catch(e => { if (e.code !== 'not_found' || !s.mutedBy) throw e; });
       s.muted = false; s.mutedBy = null; toast('sessions.unmuted');
     } else {
       await api('/brain/mute', { method: 'POST', body: JSON.stringify({ key: s.sessionId, label: s.title || base(s.cwd) }) });
