@@ -153,7 +153,7 @@ async function stt(buf, lang) {
     const { stdout, stderr } = await pexec(config.bin.whisper, ['-m', config.whisperModel, '-l', lang, '-nt', '-np', '-sns', '-mc', '0', ...vadArgs(), '-f', wav], { timeout: 60000, maxBuffer: 5e6 });
     // an older whisper-cli prints its usage and exits 0 on a flag it doesn't know: that isn't silence
     const unknown = /unknown argument: (\S+)/.exec(stderr);
-    if (unknown) throw new Error(`whisper-cli does not support ${unknown[1]}: update whisper.cpp (brew upgrade whisper-cpp)`);
+    if (unknown) throw new Error(`whisper-cli does not support ${unknown[1]}: update whisper.cpp (brew upgrade whisper.cpp)`);
     return stdout.replace(/\s+/g, ' ').trim();
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }

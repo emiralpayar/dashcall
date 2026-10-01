@@ -9,7 +9,7 @@ safety rules, for people and AI coding agents alike. This project follows a [Cod
 
 ```sh
 git clone https://github.com/emiralpayar/dashcall.git && cd dashcall
-npm test          # 57 unit, HTTP and i18n tests, offline, silent, no dependencies
+npm test          # 178 unit, HTTP, SPA and i18n tests, offline, silent, no dependencies
 npm run check     # syntax check of every JavaScript file
 npm run demo      # the app with a mock agent at http://localhost:8080 (password: demo), silent
 ```
@@ -21,6 +21,8 @@ You need Node.js 22 or newer. You **don't** need a Mac, herdr or Claude Code for
   (answers show as timed subtitles); run `DASHCALL_DEMO_SOUND=1 npm run demo` if you want to hear the browser voice.
 - **Agent and web server work:** add tests in `test/`. The existing suites start the real servers with temp data
   folders and a fake herdr path.
+- **SPA behaviour:** `test/app.test.mjs` runs the real page scripts in a fake browser (no network, no sound), so a fix
+  in `web/public/app.js` can come with a test too.
 - **End-to-end** testing needs a Mac with herdr and Claude Code; see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Rules of thumb
@@ -61,7 +63,6 @@ You need Node.js 22 or newer. You **don't** need a Mac, herdr or Claude Code for
 
 - More languages (see "Adding a language" in [AGENTS.md](AGENTS.md#adding-a-language)).
 - Linux support for the agent (replacing macOS `say`, launchd examples for systemd).
-- Narrowing the dispatcher's permissions to just the `dashcall` CLI.
 - Screenshots, docs and accessibility improvements.
 
 ## Reporting bugs and security issues

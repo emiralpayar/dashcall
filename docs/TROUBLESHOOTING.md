@@ -94,6 +94,20 @@ The agent answers the questions of one conversation one at a time, and an earlie
 running, usually the summary of a background task that just finished. Your question runs as soon as it is done, and
 its 5-minute limit only starts then. Tap to stop waiting: the answer still arrives later as a notification.
 
+## Every question fails with `unknown option`
+
+The dispatcher runs with permission flags (`--permission-mode dontAsk`, `--tools`, `--strict-mcp-config`, …) that an
+older Claude Code doesn't know, so every question ends with "Something went wrong" and the agent log shows
+`dispatcher error` with `unknown option`. Run `claude update` on the Mac, as the user the agent runs as. Each question
+starts a new `claude` process, so the next one uses the new version without restarting the agent.
+
+## The dispatcher says it can't do something
+
+The dispatcher can only run the `dashcall` CLI (see
+[ARCHITECTURE.md](ARCHITECTURE.md#the-dispatchers-permissions)). It can't read your files, search the web or run other
+programs itself, so for that kind of work it starts a session or uses one of yours: say, for example, "start a job in
+my-api to check the failing tests". This is on purpose, so that text it reads can't make it run commands on your Mac.
+
 ## The web app or the agent exits right after starting (`cannot listen on …`)
 
 Both servers print `cannot listen on <address>:<port>: <reason>` and exit with status 1 when they can't open their
@@ -112,10 +126,10 @@ Look for `ffmpeg` or `whisper` in the agent log.
 
 - **Model missing:** run `./scripts/download-model.sh`. If you set `DASHCALL_WHISPER_MODEL`, check the path (relative
   paths start at the repo root).
-- **`whisper-cli` or `ffmpeg` not found:** run `brew install whisper-cpp ffmpeg`. Under launchd, see
+- **`whisper-cli` or `ffmpeg` not found:** run `brew install whisper.cpp ffmpeg`. Under launchd, see
   [the PATH issue below](#it-works-in-the-terminal-but-not-under-launchd).
 - **`whisper-cli does not support --vad` (or `-sns`):** your whisper.cpp is too old for the flags Dashcall uses. Run
-  `brew upgrade whisper-cpp` (1.8.3 or newer).
+  `brew upgrade whisper.cpp` (1.8.3 or newer).
 - **whisper fails while loading the VAD model:** the VAD model may be too new for your whisper.cpp. Upgrade
   whisper.cpp, or use the older model (`./scripts/download-model.sh ggml-large-v3-turbo-q5_0.bin
   ggml-silero-v5.1.2.bin` and `DASHCALL_WHISPER_VAD_MODEL=models/ggml-silero-v5.1.2.bin`), or set
@@ -190,8 +204,8 @@ A new session types `DASHCALL_SESSION_COMMAND` (default `claude`) into a fresh p
 permission prompt ("Allow this edit?"), so a background task started from the car waits there. The watcher reports it
 as *stuck waiting for input* after about 20 seconds.
 
-- Answer the prompt from the app: open the session under **Sessions** and send `1`/`2`/`3` or `enter`, or ask the
-  dispatcher to do it.
+- Answer the prompt from the app: open the session under **Sessions** and tap **1**, **2**, **3** or **Enter**, or ask
+  the dispatcher to do it.
 - Or configure Claude Code's permission rules for your projects.
 - Or set `DASHCALL_SESSION_COMMAND="claude --dangerously-skip-permissions"`, after reading
   [SECURITY.md](../SECURITY.md).

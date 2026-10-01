@@ -53,7 +53,7 @@ body:
     id: version
     attributes:
       label: Dashcall version or commit
-      placeholder: "v0.1.0 or the output of: git rev-parse --short HEAD"
+      placeholder: "v0.2.0 or the output of: git rev-parse --short HEAD"
     validations:
       required: true
   - type: textarea
