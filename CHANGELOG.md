@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- A state file that isn't valid JSON (say, `brain.json` after a hand edit with a typo) is never written over any
+  more: it reads as empty with a warning, and the next change moves it to `<file>.corrupt-<time>`. A lock left by a
+  crashed `dashcall` command no longer blocks the brain and state files, and `watches.json` keeps only the 50 newest
+  finished background tasks.
+
 ## [0.1.0] - 2026-09-30
 
 First public release.

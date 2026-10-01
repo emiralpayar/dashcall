@@ -65,14 +65,35 @@ test('a failing update leaves an unparseable file where it is, and says why it r
   assert.equal(err.mock.callCount(), 1, 'still once per breakage');
 });
 
+test('an update that changes nothing writes nothing: an unparseable file stays, a good one keeps its bytes', t => {
+  const dir = tempDir(), f = path.join(dir, 'brain.json'), bad = '{"memory": [{"text": "keep me"}],}';
+  writeFileSync(f, bad);
+  const err = quiet(t);
+  // like a prompt that unmutes nothing: fn runs but leaves the value as it was
+  assert.equal(updateJson(f, brain, b => b.memory.length), 0);
+  assert.equal(readFileSync(f, 'utf8'), bad);
+  assert.deepEqual(readdirSync(dir), ['brain.json'], 'nothing moved aside, no lock or temp file left');
+  assert.equal(err.mock.callCount(), 1);
+  assert.match(err.mock.calls[0].arguments[0], /ignoring .*brain\.json/);
+  const good = '{"memory":[{"text":"hand formatted"}]}';
+  writeFileSync(f, good);
+  updateJson(f, brain, b => { b.memory[0].text = 'hand formatted'; });
+  assert.equal(readFileSync(f, 'utf8'), good, 'not rewritten');
+  const missing = path.join(dir, 'none.json');
+  updateJson(missing, list, () => {});
+  assert.ok(!existsSync(missing), 'not created for nothing');
+});
+
 test('valid JSON of the wrong kind is unusable too, and kept the same way', t => {
   quiet(t);
   for (const [content, fallback] of [['[1, 2]', brain], ['{"a": 1}', list], ['null', list], ['"text"', brain]]) {
     const dir = tempDir(), f = path.join(dir, 'x.json');
     writeFileSync(f, content);
     assert.deepEqual(readJson(f, fallback), fallback(), content);
-    updateJson(f, fallback, () => {});
-    assert.deepEqual(readJson(f, fallback), fallback(), content);
+    const add = v => { if (Array.isArray(v)) v.push(1); else v.memory.push(1); };
+    updateJson(f, fallback, add);
+    const expected = fallback(); add(expected);
+    assert.deepEqual(readJson(f, fallback), expected, content);
     assert.equal(readFileSync(path.join(dir, corrupt(dir)[0]), 'utf8'), content);
   }
 });

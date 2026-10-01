@@ -87,20 +87,25 @@ function writeAtomic(file, data) {
   } catch (e) { try { unlinkSync(tmp); } catch {} throw e; }
 }
 
-// Read-modify-write under the lock; fn mutates the value and may return a result.
+// Read-modify-write under the lock; fn mutates the value and may return a result. When fn changes nothing, the file
+// isn't written at all.
 export function updateJson(file, fallback, fn) {
   return withLock(file, () => {
     const { value, problem } = parse(file, fallback);
+    const before = JSON.stringify(value, null, 1);
     let result;
     // fn first: when it fails (an unknown id, say) nothing gets saved, so an unusable file stays where it is
     try { result = fn(value); } catch (e) { report(file, problem); throw e; }
+    const data = JSON.stringify(value, null, 1);
+    // nothing to save (a prompt that unmutes nothing, a watch poll that saw no news): an unusable file stays too
+    if (data === before) { report(file, problem); return result; }
     if (problem) {
       // never write over content we couldn't read: keep it next to the file, then save the new value
       const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
       renameSync(file, kept);
       console.error(`warning: ${file} was unusable (${problem}); moved it to ${kept} before saving a new one. Fix that copy and merge it back to restore its contents.`);
     }
-    writeAtomic(file, JSON.stringify(value, null, 1));
+    writeAtomic(file, data);
     return result;
   });
 }
