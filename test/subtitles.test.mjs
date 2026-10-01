@@ -137,6 +137,13 @@ test('with word timings, chunks start when their first word is spoken', () => {
   assert.deepEqual(starts('Wait 3 minutes. Then go.', [{ w: 'Wait', t: 0 }, { w: 'three', t: 0.3 }, { w: 'minutes', t: 0.6 }, { w: 'Then', t: 1.5 }, { w: 'go', t: 1.8 }], 2), [0, 1.5]);
 });
 
+test('emoji (two UTF-16 units) do not shift later chunk times', () => {
+  const { disp, map } = S.mapText('🙂 Hi [[PR|pi ar]] 👍');
+  assert.equal(map.length, disp.length);
+  assert.equal(map[disp.indexOf('Hi')], 3);
+  near(starts('🙂🙂🙂🙂🙂🙂 Go. Up. Now.', null, 0), [0, 17 / 14, 21 / 14]);
+});
+
 test('a word the voice splits in parts is consumed whole', () => {
   // only 4 timed words are looked ahead: without consuming y…v, "Next." would get a proportional estimate (7.6)
   const words = ['Open', 'x', 'y', 'z', 'w', 'v'].map((w, i) => ({ w, t: i / 10 })).concat({ w: 'Next', t: 1.5 });
@@ -152,7 +159,7 @@ test('the matching locale is the fourth argument', () => {
 test('chunk times never go backwards, whatever the timings look like', () => {
   let seed = 7; const rnd = n => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
   const VOCAB = ['ok', 'the', 'session', 'is', 'done.', 'tests,', 'passed!', '[[PR|pi ar]]', "[[PR|pi ar]]'ı", '[[CI pipeline|si ay payplayn]]',
-    'e-posta', '3', '"quoted."', '(aside)', '**bold**', 'Işık', 'çok', 'güzel;', 'why?', 'well…'];
+    'e-posta', '3', '"quoted."', '(aside)', '**bold**', 'Işık', 'çok', 'güzel;', 'why?', 'well…', '🙂', '👍🏽.'];
   for (let n = 0; n < 300; n++) {
     const raw = Array.from({ length: 1 + rnd(30) }, () => VOCAB[rnd(VOCAB.length)]).join(rnd(5) ? ' ' : '  ');
     const parts = S.spoken(raw).split(/\s+/).filter(Boolean);

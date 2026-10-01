@@ -12,7 +12,8 @@ const spoken = t => String(t ?? '').replace(MARK, '$2');
 // Build display + spoken strings together, with a char map display→spoken so subtitle timing survives respelling.
 function mapText(raw) {
   let disp = '', say = ''; const map = [];
-  const copy = str => { for (const ch of str) { map.push(say.length); disp += ch; say += ch; } };
+  // one entry per UTF-16 unit, like the token offsets that index it (an emoji is two)
+  const copy = str => { for (let i = 0; i < str.length; i++) map.push(say.length + i); disp += str; say += str; };
   let last = 0; MARK.lastIndex = 0; let m;
   while ((m = MARK.exec(raw))) {
     copy(raw.slice(last, m.index));
