@@ -23,6 +23,7 @@ agent/                 Mac-side HTTP API (Node, no deps)
   store.mjs            notifications + watches (state/*.json)
   prompts.mjs          dispatcher system prompt + background-summary prompt
   lang.mjs             languages, locales, voices, pickLang / pickVoice
+  stt-text.mjs         cleans whisper transcripts (silence hallucinations, repeats)
   errors.mjs           httpError(status, code, message), errorBody()
   bin/dashcall         CLI the dispatcher uses (also handy for debugging)
 dispatcher/CLAUDE.md   runtime prompt of the dispatcher (see above)

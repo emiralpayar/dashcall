@@ -89,6 +89,30 @@ Look for `ffmpeg` or `whisper` in the agent log.
   paths start at the repo root).
 - **`whisper-cli` or `ffmpeg` not found:** run `brew install whisper-cpp ffmpeg`. Under launchd, see
   [the PATH issue below](#it-works-in-the-terminal-but-not-under-launchd).
+- **`whisper-cli does not support --vad` (or `-sns`):** your whisper.cpp is too old for the flags Dashcall uses. Run
+  `brew upgrade whisper-cpp` (1.8.3 or newer).
+- **whisper fails while loading the VAD model:** the VAD model may be too new for your whisper.cpp. Upgrade
+  whisper.cpp, or use the older model (`./scripts/download-model.sh ggml-large-v3-turbo-q5_0.bin
+  ggml-silero-v5.1.2.bin` and `DASHCALL_WHISPER_VAD_MODEL=models/ggml-silero-v5.1.2.bin`), or set
+  `DASHCALL_WHISPER_VAD_MODEL=off`.
+
+### Silence comes back as text ("Altyazı M.K.", "Thank you.", "you")
+
+whisper learned from subtitles, so on silence or noise it sometimes "hears" a subtitle credit. Dashcall prevents
+this with a voice activity detection (VAD) model that keeps silence away from whisper. If the agent log says
+`stt: VAD model … not found, transcribing without VAD`, run `./scripts/download-model.sh` (it skips the models you
+already have) and restart the agent. Without VAD, the agent still drops the most common made-up phrases, but not all
+of them.
+
+The agent logs `cleaned` on an `stt` line when it removed such a phrase or a repeated sentence. With
+`DASHCALL_LOG_CONTENT=1` it also shows what whisper returned. A recording that contains only "thank you" or a
+subtitle credit comes back empty on purpose, and the app shows "Didn't catch that".
+
+### The first word is missing, or a short answer like "yes" is lost
+
+VAD is tuned for short commands: it keeps 0.4 s of audio around speech and only splits at pauses of a second or more.
+If it still cuts your speech, set `DASHCALL_WHISPER_VAD_MODEL=off`, restart the agent and compare; please open an
+issue with what you said and what came back.
 
 ### Transcripts are in the wrong language or garbled
 

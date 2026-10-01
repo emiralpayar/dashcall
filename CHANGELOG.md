@@ -13,6 +13,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   more: it reads as empty with a warning, and the next change moves it to `<file>.corrupt-<time>`. A lock left by a
   crashed `dashcall` command no longer blocks the brain and state files, and `watches.json` keeps only the 50 newest
   finished background tasks.
+- **Silence no longer comes back as text:** speech-to-text runs whisper.cpp's Silero voice activity detection, so
+  silence and noise never reach whisper ("Altyazı M.K.", "Thank you.", "you"). whisper also runs without non-speech
+  tokens and without feeding its own text back, and the agent drops known silence hallucinations and a sentence
+  sequence whisper repeated. A recording of only "thank you" now comes back empty on purpose.
+
+### Changed
+
+- **After updating, run `./scripts/download-model.sh`:** it skips the whisper model you have and fetches the new VAD
+  model (under 1 MB). Without it speech-to-text still works, and the agent log says so once. The default VAD model
+  needs whisper.cpp 1.8.3 or newer (`DASHCALL_WHISPER_VAD_MODEL` picks another model or `off`); a whisper-cli too
+  old for the new flags is now reported as an error instead of every recording coming back empty.
 
 ## [0.1.0] - 2026-09-30
 

@@ -99,12 +99,69 @@ test('speech-to-text only accepts browser audio containers', async () => {
   await assertError(await call('/api/stt', { method: 'POST', body: '#EXTM3U\nfile:///etc/passwd\n', type: 'audio/webm' }), 415, 'unsupported_audio');
 });
 
+const sttAt = (port, q) => fetch(`http://127.0.0.1:${port}/api/stt${q}`, { method: 'POST', body: WAV, headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'audio/wav' } });
+const stt = async q => (await (await sttAt(agent.port, q)).json()).text;
+
 test('speech-to-text passes the requested language to whisper, defaulting when invalid', async () => {
-  const stt = async q => (await (await call('/api/stt' + q, { method: 'POST', body: WAV, type: 'audio/wav' })).json()).text;
   assert.match(await stt('?lang=tr'), /-l tr /);
   assert.match(await stt('?lang=en'), /-l en /);
   assert.match(await stt('?lang=xx'), /-l en /);
   assert.match(await stt(''), /-l en /);
+});
+
+// Another agent with its own fake whisper; its log is collected in `.log`.
+async function sttAgent(t, whisper, env = {}) {
+  const dir = tempDir();
+  const p = await startServer('agent/server.mjs', {
+    DASHCALL_TOKEN: TOKEN, DASHCALL_PORT: '0', DASHCALL_BIND: '127.0.0.1', DASHCALL_STATE_DIR: path.join(dir, 'state'),
+    DASHCALL_BRAIN_FILE: path.join(dir, 'brain.json'), DASHCALL_HERDR_BIN: '/nonexistent/herdr', DASHCALL_CLAUDE_BIN: '/nonexistent/claude',
+    DASHCALL_FFMPEG_BIN: fakeBin(dir, 'ffmpeg', 'exit 0'), DASHCALL_WHISPER_BIN: fakeBin(dir, 'whisper', whisper), ...env,
+  });
+  t.after(() => p.kill());
+  p.log = '';
+  p.stdout.on('data', d => { p.log += d; });
+  // stdout is a pipe, written asynchronously: wait for the request's own log line
+  p.waitLog = async re => { for (let i = 0; i < 100 && !re.test(p.log); i++) await new Promise(r => setTimeout(r, 20)); return p.log; };
+  return p;
+}
+
+test('speech-to-text runs whisper with VAD, without non-speech tokens and without carried-over text', async t => {
+  const vad = path.join(tempDir(), 'vad.bin');
+  writeFileSync(vad, '');
+  const a = await sttAgent(t, 'echo "args: $*"', { DASHCALL_WHISPER_VAD_MODEL: vad });
+  const args = (await (await sttAt(a.port, '?lang=tr')).json()).text;
+  assert.match(args, / -sns -mc 0 /);
+  assert.ok(args.includes(`--vad -vm ${vad} -vt 0.5 `), args);
+});
+
+test('without the VAD model file, speech-to-text still works, warns once and cleans the transcript', async t => {
+  const a = await sttAgent(t, `case "$*" in
+    *--vad*) echo "VAD ON";;
+    *"-l en"*) printf ' Thank you.\\n';;
+    *) printf ' Kaç iş çalışıyor? Tek cümle ile söyle.\\n Kaç iş çalışıyor? Tek cümle ile söyle.\\n';;
+  esac`, { DASHCALL_WHISPER_VAD_MODEL: '/nonexistent/vad.bin' });
+  const text = async q => (await (await sttAt(a.port, q)).json()).text;
+  assert.equal(await text('?lang=tr'), 'Kaç iş çalışıyor? Tek cümle ile söyle.');
+  assert.equal(await text('?lang=en'), '');
+  const log = await a.waitLog(/stt en .*cleaned/);
+  assert.equal(log.match(/VAD model .* not found/g)?.length, 1, log);
+  assert.ok(!log.includes('Kaç'), 'transcripts stay out of the log unless DASHCALL_LOG_CONTENT=1');
+});
+
+test('DASHCALL_WHISPER_VAD_MODEL=off (any case) turns VAD off without a warning', async t => {
+  const a = await sttAgent(t, 'echo "args: $*"', { DASHCALL_WHISPER_VAD_MODEL: 'OFF' });
+  const args = (await (await sttAt(a.port, '?lang=tr')).json()).text;
+  assert.match(args, /-sns/);
+  assert.doesNotMatch(args, /--vad/);
+  assert.doesNotMatch(await a.waitLog(/stt tr/), /VAD model/);
+});
+
+test('a whisper-cli too old for the flags is an error, not silence', async t => {
+  // old whisper-cli prints its usage and exits 0 on an unknown flag
+  const a = await sttAgent(t, 'echo "error: unknown argument: -sns" >&2; exit 0', { DASHCALL_WHISPER_VAD_MODEL: 'off' });
+  const r = await sttAt(a.port, '?lang=tr');
+  await assertError(r.clone(), 500, 'internal');
+  assert.match((await r.json()).error, /does not support -sns.*brew upgrade whisper-cpp/);
 });
 
 test('speak picks a voice of the requested language', async () => {

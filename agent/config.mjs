@@ -36,6 +36,9 @@ export const config = {
   brainFile: fromRoot(env('DASHCALL_BRAIN_FILE') || 'dispatcher/brain/brain.json'),
   stateDir: fromRoot(env('DASHCALL_STATE_DIR') || 'state'),
   whisperModel: fromRoot(env('DASHCALL_WHISPER_MODEL') || 'models/ggml-large-v3-turbo-q5_0.bin'),
+  // Silero VAD model: only detected speech reaches whisper, so silence can't come back as made-up text.
+  // `off` disables it; a missing file only logs a warning (see vadArgs() in server.mjs).
+  whisperVadModel: env('DASHCALL_WHISPER_VAD_MODEL')?.toLowerCase() === 'off' ? null : fromRoot(env('DASHCALL_WHISPER_VAD_MODEL') || 'models/ggml-silero-v6.2.0.bin'),
   bin: {
     claude: command(env('DASHCALL_CLAUDE_BIN') || 'claude'),
     herdr: command(env('DASHCALL_HERDR_BIN') || 'herdr'),

@@ -4,6 +4,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as L from './lib.mjs';
@@ -12,6 +13,7 @@ import * as S from './store.mjs';
 import { config, ROOT } from './config.mjs';
 import { httpError, errorBody } from './errors.mjs';
 import { pickLang, pickVoice } from './lang.mjs';
+import { cleanTranscript } from './stt-text.mjs';
 import * as P from './prompts.mjs';
 import * as D from './dispatch.mjs';
 
@@ -126,13 +128,32 @@ const jobView = j => ({ id: j.id, status: j.status, queued: j.queued, lang: j.la
 setInterval(() => { for (const [k, j] of jobs) if (Date.now() - j.started > 3600e3) jobs.delete(k); }, 600e3).unref();
 
 // ---------- speech ----------
+// Voice activity detection: whisper only gets the detected speech, so silence and noise can't become made-up text.
+// Tuned for short spoken commands: 400 ms of padding and a 1 s minimum pause keep a quiet first word and a sentence
+// in one piece (whisper's 30 ms / 100 ms defaults cut the first words off quiet speech in tests).
+const VAD = ['-vt', '0.5', '-vspd', '100', '-vsd', '1000', '-vp', '400'];
+let vadMissingLogged = false;
+function vadArgs() {
+  const m = config.whisperVadModel;
+  if (!m) return [];
+  if (existsSync(m)) return ['--vad', '-vm', m, ...VAD];
+  // whisper-cli aborts on a missing VAD model: transcribe without it rather than fail every recording
+  if (!vadMissingLogged) { vadMissingLogged = true; log(`stt: VAD model ${m} not found, transcribing without VAD (run scripts/download-model.sh)`); }
+  return [];
+}
+
 async function stt(buf, lang) {
   const dir = await mkdtemp(path.join(tmpdir(), 'dashcall-stt-'));
   try {
     const inp = path.join(dir, 'in'), wav = path.join(dir, 'a.wav');
     await writeFile(inp, buf);
     await pexec(config.bin.ffmpeg, ['-y', '-loglevel', 'error', '-protocol_whitelist', 'file', '-i', inp, '-ar', '16000', '-ac', '1', wav], { timeout: 30000 });
-    const { stdout } = await pexec(config.bin.whisper, ['-m', config.whisperModel, '-l', lang, '-nt', '-np', '-f', wav], { timeout: 60000, maxBuffer: 5e6 });
+    // -sns: no "♪" or "[Music]" tokens. -mc 0: don't feed the text so far back as the prompt for the rest of the
+    // audio, a known way for whisper to repeat itself (commands are short, so the lost context doesn't matter).
+    const { stdout, stderr } = await pexec(config.bin.whisper, ['-m', config.whisperModel, '-l', lang, '-nt', '-np', '-sns', '-mc', '0', ...vadArgs(), '-f', wav], { timeout: 60000, maxBuffer: 5e6 });
+    // an older whisper-cli prints its usage and exits 0 on a flag it doesn't know: that isn't silence
+    const unknown = /unknown argument: (\S+)/.exec(stderr);
+    if (unknown) throw new Error(`whisper-cli does not support ${unknown[1]}: update whisper.cpp (brew upgrade whisper-cpp)`);
     return stdout.replace(/\s+/g, ' ').trim();
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
@@ -254,8 +275,10 @@ const routes = [
   ['POST', /^\/api\/stt$/, async (req, url) => {
     const t0 = Date.now(), buf = await body(req), lang = pickLang(url.searchParams.get('lang'));
     if (!isAudio(buf)) throw httpError(415, 'unsupported_audio', 'unsupported audio format');
-    const text = await stt(buf, lang);
-    log('stt', lang, `${Date.now() - t0}ms`, `${buf.length}B`, req.headers['content-type'], config.logContent ? JSON.stringify(text) : '');
+    const raw = await stt(buf, lang), text = cleanTranscript(raw);
+    // "cleaned" means a hallucination or a repeat was removed; the raw text is as private as the transcript
+    const cleaned = raw === text ? '' : `cleaned${config.logContent ? ' from ' + JSON.stringify(raw) : ''}`;
+    log('stt', lang, `${Date.now() - t0}ms`, `${buf.length}B`, req.headers['content-type'], config.logContent ? JSON.stringify(text) : '', cleaned);
     return { text };
   }],
 ];

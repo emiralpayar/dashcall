@@ -174,8 +174,11 @@ output.
 #### `POST /api/stt?lang=en`
 
 The body is raw audio, as the browser records it (WebM, Ogg, MP4/M4A or WAV; up to 25 MB), with a matching
-`Content-Type`. Transcribes it with whisper.cpp in the given language and returns `{"text": "…"}`. Errors:
-`unsupported_audio`, `too_large`, `internal` (ffmpeg or whisper failed, for example because the model is missing).
+`Content-Type`. Transcribes it with whisper.cpp in the given language and returns `{"text": "…"}`. `text` is empty
+when the recording holds no speech, or only something whisper typically makes up on silence (such as "Altyazı M.K."
+or "Thank you."); a sentence sequence that whisper repeated comes back once. Errors: `unsupported_audio`,
+`too_large`, `internal` (ffmpeg or whisper failed, for example because the model is missing or `whisper-cli` is too
+old for its flags).
 
 #### `POST /api/speak`
 
