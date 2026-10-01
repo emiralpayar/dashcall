@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   model (under 1 MB). Without it speech-to-text still works, and the agent log says so once. The default VAD model
   needs whisper.cpp 1.8.3 or newer (`DASHCALL_WHISPER_VAD_MODEL` picks another model or `off`); a whisper-cli too
   old for the new flags is now reported as an error instead of every recording coming back empty.
+- **Folder mutes match whole folder names or paths:** muting `api` no longer hides `~/rapid-x` or `~/capital`. A mute
+  that relied on part of a folder name (say, `trader` for `edge-trader`) no longer matches anything, so mute again
+  with the full folder name or path. Sessions report which mute hides them (`mutedBy`), and Unmute removes that exact
+  key. The Sessions tab's polls are served from a transcript summary cache, and a folder named `..x` inside the
+  workspace root can now be used for a new session.
 
 ## [0.1.0] - 2026-09-30
 
