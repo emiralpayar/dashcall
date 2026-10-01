@@ -37,10 +37,10 @@ playing after the first sentence.
 ### Security
 
 - **The dispatcher may only run the `dashcall` CLI** ([#7]). It no longer runs with `--dangerously-skip-permissions`.
-  Bash is its only tool and accepts `dashcall …` commands only (`--permission-mode dontAsk`, no MCP servers, no reads
-  outside `dispatcher/`), so a prompt injection in a session's output can't run other commands on your Mac.
-  `DASHCALL_TOKEN` is removed from its environment. `DASHCALL_DISPATCH_UNRESTRICTED=1` brings back the old run for
-  debugging; it is unsafe. Allow rules in your own `~/.claude/settings.json` also apply to the dispatcher.
+  Bash is its only tool and accepts `dashcall …` commands only, apart from Claude Code's read-only ones (such as
+  `cat`), which can't read outside `dispatcher/` (`--permission-mode dontAsk`, no MCP servers). So a prompt injection
+  in a session's output can't run other commands on your Mac. `DASHCALL_TOKEN` is removed from its environment.
+  `DASHCALL_DISPATCH_UNRESTRICTED=1` brings back the old run for debugging; it is unsafe. Allow rules in your own `~/.claude/settings.json` also apply to the dispatcher.
 - **Optional two-factor login** ([#4]). With `DASHCALL_TOTP_SECRET` set, logging in also needs the 6-digit code of an
   authenticator app (RFC 6238; each code works once). `node scripts/totp-secret.mjs` makes a secret. A wrong password
   and a wrong code get the same answer (`bad_login`). The web app refuses to start with an invalid secret.
@@ -90,7 +90,7 @@ playing after the first sentence.
   limit starts once it runs ([#6]).
 - The full-text sheet opens from any tab, keeps keyboard focus inside while open and gives it back on close. The
   session view fits the screen, with the reply box always visible ([#5]).
-- The docs use Homebrew's current formula name, `whisper.cpp` (`whisper-cpp` still works as an alias) ([#11]).
+- The docs use Homebrew's current formula name, `whisper.cpp` (the old name, `whisper-cpp`, still works) ([#11]).
 
 ### Fixed
 

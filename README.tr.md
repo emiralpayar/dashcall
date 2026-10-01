@@ -62,9 +62,9 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
 ## Neler yapabiliyor?
 
 - **Sürüş modu.** Tek, büyük bir konuşma düğmesi. Sen konuşursun; Claude tabanlı bir "dispatcher" (yönlendirici) ne
-  demek istediğini anlar, oturumlarında gereğini yapar ve kısa cevabı altyazıyla birlikte sesli okur. Uzun bir cevap,
-  geri kalanı hâlâ seslendirilirken ilk cümlesinden itibaren çalmaya başlar. Sustuğunda kayıt kendiliğinden biter;
-  istersen yazarak da sorabilirsin.
+  demek istediğini anlar, oturumlarında gereğini yapar ve kısa cevabı altyazıyla birlikte sesli okur. Uzun bir cevabın
+  ilk cümlesi, geri kalanı hâlâ seslendirilirken okunmaya başlar. Sustuğunda kayıt kendiliğinden biter; istersen
+  yazarak da sorabilirsin.
 - **İşler.** Çalışan tüm Claude Code oturumlarını ve son 48 saatte bitenleri gör. Bir oturumun terminalini oku, ona
   mesaj gönder, Esc ile durdur ya da izin ve menü sorularını 1, 2, 3 ve Enter tuşlarıyla yanıtla. Biten bir oturum,
   son isteği ve son cevabıyla salt okunur açılır.
@@ -79,7 +79,7 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
 - **Türkçe ve İngilizce.** Dili uygulamadan değiştir; konuşma tanıma, sesler ve dispatcher'ın cevapları da ona uyar.
 - **Telefona göre tasarlandı.** Telefonda sekmeler başparmağın ulaştığı alttaki çubukta durur; geniş ekranda sürüş
   modu düğmeyi ve altyazıları yan yana gösterir. Ana ekrana eklersen kendi simgesiyle, bir uygulama gibi tam ekran
-  açılır (bağlantı gerekir; çevrimdışı modu yok).
+  açılır (internet bağlantısı gerekir, çevrimdışı çalışmaz).
 - **Hafif.** npm bağımlılığı olmayan iki Node.js sunucusu, whisper.cpp ile tamamen yerel konuşma tanıma. Ses etkinliği
   algılama (VAD) sessizliği ve arka plan gürültüsünü whisper'a hiç ulaştırmaz, böylece bunlar uydurma kelimelere
   dönüşmez.
@@ -158,7 +158,8 @@ okuması için `[[PR|pi ar]]` gibi bir telaffuz işaretiyle yazar; altyazıda ya
 şifrendir.
 
 - Dispatcher yalnızca `dashcall` CLI'yı çalıştırabilir ve bunu Claude Code zorunlu kılar: tek aracı Bash'tir, Bash de
-  yalnızca `dashcall` komutlarını kabul eder. Yine de okuduğu metinler (oturum çıktıları, araştırma sonuçları, yanlış
+  yalnızca `dashcall` komutlarını kabul eder (Claude Code'un `cat` gibi salt okunur komutları da çalışır, ama
+  `dispatcher/` dışındaki dosyaları okuyamaz). Yine de okuduğu metinler (oturum çıktıları, araştırma sonuçları, yanlış
   anlaşılmış bir ses kaydı) prompt injection içerebilir ve bunlar `dashcall` üzerinden oturumlarına yazı yazabilir,
   tuşa basabilir ve yeni oturum açabilir. `DASHCALL_DISPATCH_UNRESTRICTED=1` bu kısıtlamayı hata ayıklamak için
   kaldırır; güvenli değildir.

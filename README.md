@@ -166,9 +166,10 @@ The first visit follows your browser's language. Adding a language is a well-sco
 Code. The password is the whole perimeter.
 
 - The dispatcher may only run the `dashcall` CLI, and Claude Code enforces it: Bash is its only tool and accepts
-  nothing but `dashcall` commands. Text it reads (session output, research results, a misheard transcript) can still
-  contain prompt injections, and through `dashcall` those can type into your sessions, press keys in them and start
-  new ones. `DASHCALL_DISPATCH_UNRESTRICTED=1` lifts the restriction for debugging; it is unsafe.
+  only `dashcall` commands, apart from Claude Code's read-only ones (such as `cat`), which can't read outside
+  `dispatcher/`. Text it reads (session output, research results, a misheard transcript) can still contain prompt
+  injections, and through `dashcall` those can type into your sessions, press keys in them and start new ones.
+  `DASHCALL_DISPATCH_UNRESTRICTED=1` lifts the restriction for debugging; it is unsafe.
 - Keep the agent on a private network (Tailscale) and never expose it publicly. Every request needs the bearer token.
 - The web app has a rate-limited password login (10 failed attempts per IP and 30 in total per 15 minutes) with
   optional two-factor codes from an authenticator app (`DASHCALL_TOTP_SECRET`). Logins are signed HttpOnly cookies
