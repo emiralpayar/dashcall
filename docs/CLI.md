@@ -70,10 +70,12 @@ view.
 | `dashcall mute <sessionId\|folder> [label...]` | Stop mentioning a session (by its Claude session ID) or a whole project (by folder name) |
 | `dashcall unmute <key>` | The same as `forget`, for mutes |
 
-How muting matches: a key that looks like a session ID (a UUID) mutes that one session. Any other key mutes every
-session whose folder path contains it (case-insensitive). Muted sessions are hidden from `sessions` and `recent`,
-and shown under "Muted" in the app. Sending a session a prompt removes its session-ID mute automatically; folder mutes
-stay until you remove them.
+How muting matches: a key that looks like a session ID (a UUID) mutes that one session. Any other key is a folder: a
+name such as `my-api` (or `code/my-api`) mutes every session whose folder path has it as whole path segments, ignoring
+case, so `api` mutes `~/code/api` and its subfolders but not `~/rapid-x` or `~/api-server`; a path such as
+`~/code/my-api` mutes that folder and everything inside it. Muted sessions are hidden from `sessions` and `recent`
+(with `--all`, `mutedBy` shows which key muted each one), and shown under "Muted" in the app. Sending a session a
+prompt removes its session-ID mute automatically; folder mutes stay until you remove them.
 
 Items get short random IDs, such as `a1b2c3`. The file is plain JSON, so you can back it up, or edit it while the agent
 isn't writing to it. If an edit leaves it invalid, nothing is lost: the brain reads as empty (with a warning) until you

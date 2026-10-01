@@ -35,14 +35,19 @@ export async function herdr(args, { timeout = 30000 } = {}) {
 }
 
 // ---------- transcripts ----------
-const fileCache = new Map(); // sessionId -> path
+// The Sessions tab polls every 15 s, so lookups and summaries are cached; both maps drop their oldest entry when full.
+const CACHE_MAX = 200;
+const fileCache = new Map(); // sessionId -> transcript path
+const summaries = new Map(); // transcript path -> { mtimeMs, size, summary }
+const cachePut = (map, k, v) => { map.delete(k); map.set(k, v); if (map.size > CACHE_MAX) map.delete(map.keys().next().value); };
+const statOrNull = f => stat(f).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
 
 async function findTranscript(sessionId) {
   if (fileCache.has(sessionId)) return fileCache.get(sessionId);
   const dirs = await readdir(PROJECTS).catch(() => []);
   for (const d of dirs) {
     const p = path.join(PROJECTS, d, `${sessionId}.jsonl`);
-    try { await stat(p); fileCache.set(sessionId, p); return p; } catch {}
+    try { await stat(p); cachePut(fileCache, sessionId, p); return p; } catch {}
   }
   return null;
 }
@@ -70,8 +75,22 @@ const isNoise = t => !t || /^<(command|local-command|system-reminder|task-notifi
 
 // Summarize a transcript: title, last user prompt, last assistant text, timestamps.
 export async function transcriptSummary(sessionId, file) {
-  file = file || await findTranscript(sessionId);
-  if (!file) return null;
+  let st;
+  if (file) st = await statOrNull(file);
+  else {
+    file = await findTranscript(sessionId);
+    st = file && await statOrNull(file);
+    // the cached path is gone (transcript deleted or moved): forget it and search once more
+    if (file && !st) { fileCache.delete(sessionId); summaries.delete(file); file = await findTranscript(sessionId); st = file && await statOrNull(file); }
+  }
+  return st ? summarize(sessionId, file, st) : null;
+}
+
+// st is stat()ed before reading: if the file grows meanwhile, the next call sees a newer mtime or size and reads
+// again, so a cached summary is never older than the (mtimeMs, size) it is stored under.
+async function summarize(sessionId, file, st) {
+  const prev = summaries.get(file);
+  if (prev && prev.mtimeMs === st.mtimeMs && prev.size === st.size) { cachePut(summaries, file, prev); return prev.summary; }
   const lines = await readTail(file);
   let title = null, lastUser = null, lastAssistant = null, lastTs = null, cwd = null;
   for (const l of lines) {
@@ -90,33 +109,33 @@ export async function transcriptSummary(sessionId, file) {
       if (t.trim()) lastAssistant = { text: t, ts: d.timestamp };
     }
   }
-  const st = await stat(file);
-  return { sessionId, title, cwd, lastUser, lastAssistant, lastTs, mtime: st.mtime.toISOString() };
+  // Only the last 400 KB is read, so the title (or cwd) of a long transcript can scroll out of that window.
+  // Transcripts only grow: keep what an earlier read of the same file found.
+  if (prev && st.size >= prev.size) { title ??= prev.summary.title; cwd ??= prev.summary.cwd; }
+  const summary = { sessionId, title, cwd, lastUser, lastAssistant, lastTs, mtime: st.mtime.toISOString() };
+  cachePut(summaries, file, { mtimeMs: st.mtimeMs, size: st.size, summary });
+  return summary;
 }
 
 // Sessions whose transcripts changed within `hours` (includes ones no longer running).
 export async function recentTranscripts(hours = 48, limit = 20) {
   const since = Date.now() - hours * 3600e3;
-  const out = [];
   const dirs = await readdir(PROJECTS).catch(() => []);
-  for (const d of dirs) {
+  const found = (await Promise.all(dirs.map(async d => {
     const dir = path.join(PROJECTS, d);
-    const files = await readdir(dir).catch(() => []);
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue;
-      const p = path.join(dir, f);
-      const st = await stat(p).catch(() => null);
-      if (st && st.mtimeMs > since) out.push({ p, m: st.mtimeMs, id: f.slice(0, -6) });
-    }
-  }
-  out.sort((a, b) => b.m - a.m);
-  const res = [];
-  for (const o of out.slice(0, limit)) {
-    fileCache.set(o.id, o.p);
-    const s = await transcriptSummary(o.id, o.p).catch(() => null);
-    if (s && (s.lastUser || s.lastAssistant)) res.push({ ...s, muted: !!brain.isMuted(s) });
-  }
-  return res;
+    const files = (await readdir(dir).catch(() => [])).filter(f => f.endsWith('.jsonl'));
+    return Promise.all(files.map(async f => {
+      const p = path.join(dir, f), st = await stat(p).catch(() => null);
+      return st?.mtimeMs > since ? { p, st, id: f.slice(0, -6) } : null;
+    }));
+  }))).flat().filter(Boolean).sort((a, b) => b.st.mtimeMs - a.st.mtimeMs).slice(0, limit);
+  const b = brain.load();
+  const res = await Promise.all(found.map(async o => {
+    cachePut(fileCache, o.id, o.p);
+    const s = await summarize(o.id, o.p, o.st).catch(() => null);
+    return s && (s.lastUser || s.lastAssistant) ? { ...s, ...mutedFields(brain.isMuted(s, b)) } : null;
+  }));
+  return res.filter(Boolean);
 }
 
 // ---------- sessions ----------
@@ -141,10 +160,13 @@ export async function listSessions() {
       lastUser: t?.lastUser ? clip(t.lastUser.text, 600) : null,
       lastAssistant: t?.lastAssistant ? clip(t.lastAssistant.text, 1500) : null,
       lastTs: t?.lastTs || null,
-      muted: !!brain.isMuted({ sessionId: sid, cwd: a.foreground_cwd || a.cwd }, b),
+      ...mutedFields(brain.isMuted({ sessionId: sid, cwd: a.foreground_cwd || a.cwd }, b)),
     };
   }));
 }
+
+// mutedBy is the key of the matching mute (a session id or a folder): forgetting that key unmutes the session.
+const mutedFields = m => ({ muted: !!m, mutedBy: m?.key ?? null });
 
 export const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + '…' : s);
 
@@ -183,7 +205,8 @@ export async function startSession(cwd, prompt, label) {
   if (!st?.isDirectory()) throw httpError(400, 'folder_not_found', `Folder not found: ${cwd}`);
   // compare real paths so a symlink inside the root can't point outside it
   const real = await realpath(cwd);
-  const inside = async root => { const rel = path.relative(await realpath(root).catch(() => root), real); return !rel.startsWith('..') && !path.isAbsolute(rel); };
+  // "..foo" is an ordinary folder name: only ".." itself or a "../" prefix leaves the root
+  const inside = async root => { const rel = path.relative(await realpath(root).catch(() => root), real); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
   // the repo's research/ folder (used by the dispatcher for background research) is always allowed
   if (!(await inside(WORKSPACE_ROOT)) && !(await inside(path.join(ROOT, 'research')))) throw httpError(400, 'folder_outside_root', `Folder must be inside ${WORKSPACE_ROOT}: ${cwd}`);
   const args = ['workspace', 'create', '--cwd', cwd, '--no-focus'];

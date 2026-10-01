@@ -510,13 +510,13 @@ $('d-mute').onclick = async () => {
   const s = openSession; if (!s?.sessionId) return;
   try {
     if (s.muted) {
-      const b = await api('/brain');
-      const m = b.muted.find(m => m.key === s.sessionId) || b.muted.find(m => s.cwd?.toLowerCase().includes(m.key.toLowerCase()));
-      if (m) await api('/brain/forget', { method: 'POST', body: JSON.stringify({ key: m.key }) });
-      s.muted = false; toast('sessions.unmuted');
+      // the agent names the mute that matched (this session's id or a folder); not_found means it is already gone
+      await api('/brain/forget', { method: 'POST', body: JSON.stringify({ key: s.mutedBy || s.sessionId }) })
+        .catch(e => { if (e.code !== 'not_found') throw e; });
+      s.muted = false; s.mutedBy = null; toast('sessions.unmuted');
     } else {
       await api('/brain/mute', { method: 'POST', body: JSON.stringify({ key: s.sessionId, label: s.title || base(s.cwd) }) });
-      s.muted = true; toast('sessions.mutedToast');
+      s.muted = true; s.mutedBy = s.sessionId; toast('sessions.mutedToast');
     }
     renderMute();
   } catch (e) { toast(e.message); }
