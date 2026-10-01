@@ -88,6 +88,12 @@ answering: a crash, an update, `launchctl kickstart`, or launchd restarting it a
 arrive, so the app stops waiting right away instead of after 5 minutes. Ask again. If it keeps happening, look in
 `logs/agent.log` for why the agent restarts.
 
+## "Waiting for the previous answer"
+
+The agent answers the questions of one conversation one at a time, and an earlier job of this conversation is still
+running, usually the summary of a background task that just finished. Your question runs as soon as it is done, and
+its 5-minute limit only starts then. Tap to stop waiting: the answer still arrives later as a notification.
+
 ## The web app or the agent exits right after starting (`cannot listen on …`)
 
 Both servers print `cannot listen on <address>:<port>: <reason>` and exit with status 1 when they can't open their

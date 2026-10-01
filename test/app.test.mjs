@@ -1,6 +1,7 @@
 // Runs the real single-page app (web/public/app.js) in a small fake browser: a DOM built from index.html, a fake
 // fetch, a fake microphone and a speech stub. Nothing touches the network or makes a sound, and time runs FAST times
-// faster than the wall clock so the app's own waits (polling, retries, timeouts) stay short.
+// faster than the wall clock (or `fast` times, for tests that wait many virtual minutes) so the app's own waits
+// (polling, retries, timeouts) stay short.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -41,7 +42,7 @@ class El {
   getBoundingClientRect() { return { top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }; }
 }
 
-function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
+function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST } = {}) {
   const dom = { all: new Set(), byId: new Map(), toasts: [] };
   for (const m of HTML.matchAll(/<([a-z][\w-]*)\b([^>]*)>/gi)) {
     const attrs = Object.fromEntries([...m[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map(a => [a[1], a[2] ?? '']));
@@ -60,10 +61,10 @@ function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
 
   // virtual time
   const timers = new Set(); let closed = false;
-  const start = Date.now(), now = () => start + (Date.now() - start) * FAST;
+  const start = Date.now(), now = () => start + (Date.now() - start) * fast;
   const later = (fn, ms) => {
     if (closed) return 0;
-    const h = setTimeout(() => { timers.delete(h); fn(); }, Math.max(0, ms || 0) / FAST);
+    const h = setTimeout(() => { timers.delete(h); fn(); }, Math.max(0, ms || 0) / fast);
     timers.add(h); return h;
   };
   const cancel = h => { clearTimeout(h); clearInterval(h); timers.delete(h); };
@@ -116,8 +117,8 @@ function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
       later(() => { this.ondataavailable?.({ data: new Blob([new Uint8Array(4000)], { type: this.mimeType }) }); this.onstop?.(); }, 0);
     }
   }
-  const spoken = [];
-  const speechSynthesis = { speak: u => { spoken.push(u.text); later(() => u.onend?.(), 0); }, cancel() {}, getVoices: () => [] };
+  const spoken = [], spokenLangs = [];
+  const speechSynthesis = { speak: u => { spoken.push(u.text); spokenLangs.push(u.lang); later(() => u.onend?.(), 0); }, cancel() {}, getVoices: () => [] };
   class SpeechSynthesisUtterance { constructor(text) { this.text = text; } }
   class Audio { play() { return Promise.resolve(); } pause() {} load() {} }
   class FakeURL extends URL { static createObjectURL() { return 'blob:fake'; } static revokeObjectURL() {} }
@@ -127,7 +128,7 @@ function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
     document, navigator, console, crypto, location: { href: '/' },
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) },
     setTimeout: (fn, ms, ...a) => later(() => fn(...a), ms), clearTimeout: cancel,
-    setInterval: (fn, ms) => { if (closed) return 0; const h = setInterval(fn, Math.max(1, ms / FAST)); timers.add(h); return h; }, clearInterval: cancel,
+    setInterval: (fn, ms) => { if (closed) return 0; const h = setInterval(fn, Math.max(1, ms / fast)); timers.add(h); return h; }, clearInterval: cancel,
     requestAnimationFrame: fn => later(() => fn(now() - start), 16), cancelAnimationFrame: cancel,
     performance: { now: () => now() - start },
     fetch, AbortController, Blob, URL: FakeURL, atob, btoa, DOMException,
@@ -143,7 +144,7 @@ function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
 
   const $ = id => dom.byId.get(id);
   return {
-    $, mic, spoken, now,
+    $, mic, spoken, spokenLangs, now,
     get: expr => vm.runInContext(expr, ctx), // reads the app's top-level state, e.g. get('driveState')
     calls: key => calls.filter(c => `${c.method} ${c.path}` === key),
     lastToast: () => dom.toasts.at(-1) ?? '',
@@ -180,6 +181,78 @@ test('a job the agent lost (it restarted) ends the wait at once, with a clear me
     assert.ok(h.now() - t0 < 150e3, 'long before the 5-minute limit');
     assert.equal(h.calls('GET /ask/job-1').length, 1, 'stops polling at the first unknown_job');
     await h.until(() => h.get('driveState') === 'idle', 'drive mode to be idle again');
+  } finally { h.close(); }
+});
+
+// A job that waits behind an earlier one of its conversation (agents that serialize them say `queued: true`): its
+// 5 minutes start when it runs, and the app says what it is waiting for.
+const MIN = 60e3;
+function stagedJob(stages, done) { // stages: [[virtual ms, job fields], …] from the POST on; then `done`
+  let h, t0;
+  const job = () => {
+    const at = h.now() - t0;
+    for (const [until, fields] of stages) if (at < until) return { id: 'job-q', status: 'running', ...fields };
+    return { id: 'job-q', ...done };
+  };
+  return {
+    attach: x => { h = x; },
+    routes: { 'POST /ask': () => { t0 = h.now(); return job(); }, 'GET /ask/job-q': job },
+  };
+}
+
+test('a queued question waits for its turn without timing out, and says so', async () => {
+  const s = stagedJob([[6 * MIN, { queued: true }], [8 * MIN, {}]], { status: 'done', reply: 'Queued answer.', conversationId: CONV_A });
+  const h = boot({ routes: s.routes, fast: 1000 }); s.attach(h);
+  try {
+    h.typeQuestion('and the tests?');
+    await h.until(() => /Waiting for the previous answer/.test(h.$('state').textContent), 'the queued state');
+    await h.until(() => /Looking into it|Still looking/.test(h.$('state').textContent), 'the job to run', 10000);
+    await h.until(() => h.spoken.length, 'the answer', 10000);
+    assert.deepEqual(h.spoken, ['Queued answer.'], '8 minutes after the POST, but only 2 of them running');
+    await h.until(() => h.get('driveState') === 'idle', 'drive mode to be idle again');
+  } finally { h.close(); }
+});
+
+test('the 5-minute limit counts from when the job runs, with a 15-minute cap, and agents without queues work as before', async () => {
+  const cases = [
+    ['queued, then running for too long', [[6 * MIN, { queued: true }], [Infinity, {}]], 11 * MIN],
+    ['queued for ever', [[Infinity, { queued: true }]], 15 * MIN],
+    ['an agent that never says queued', [[Infinity, {}]], 5 * MIN],
+  ];
+  for (const [what, stages, limit] of cases) {
+    const s = stagedJob(stages);
+    const h = boot({ routes: s.routes, fast: 1000 }); s.attach(h);
+    try {
+      const t0 = h.now();
+      h.typeQuestion('anything');
+      await h.until(() => h.spoken.length, `${what}: the give-up`, 10000);
+      const took = h.now() - t0;
+      assert.match(h.spoken[0], /Something went wrong: Timed out/, what);
+      assert.ok(took >= limit && took < limit + 0.5 * MIN, `${what}: gave up after ${(took / MIN).toFixed(2)} min`);
+    } finally { h.close(); }
+  }
+});
+
+test("an agent's friendly error is spoken as is, in the question's language; other errors keep the prefix", async () => {
+  const friendly = '[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.';
+  let h = boot({ routes: {
+    'POST /ask': () => ({ id: 'j', status: 'running' }),
+    'GET /ask/j': () => ({ id: 'j', status: 'error', lang: 'tr', error: friendly, detail: "You've hit your session limit · resets 2pm" }),
+  } });
+  try {
+    h.get("setLang('tr')");
+    h.typeQuestion('işler ne durumda?');
+    h.get("setLang('en')"); // switching meanwhile doesn't change the language of the answer
+    await h.until(() => h.spoken.length, 'the error');
+    assert.deepEqual(h.spoken, ['klod kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.']);
+    assert.deepEqual(h.spokenLangs, ['tr-TR']);
+  } finally { h.close(); }
+
+  h = boot({ routes: { 'POST /ask': () => ({ id: 'j', status: 'running' }), 'GET /ask/j': () => ({ id: 'j', status: 'error', error: 'exit 1' }) } });
+  try {
+    h.typeQuestion('hi');
+    await h.until(() => h.spoken.length, 'the error');
+    assert.deepEqual(h.spoken, ['Something went wrong: exit 1']);
   } finally { h.close(); }
 });
 

@@ -75,7 +75,10 @@ rest: the title, the last user prompt and the last assistant message.
    conversation never wait.
 5. **Poll.** The browser polls `GET /api/ask/<id>` about every 1.2 seconds until the status is `done` or `error`.
    Network errors while polling are retried until the 5-minute limit, but `unknown_job` (the agent restarted and
-   forgot the job) ends the wait at once: the app says so and asks the user to ask again.
+   forgot the job) ends the wait at once: the app says so and asks the user to ask again. A job with `queued: true`
+   is waiting for an earlier job of its conversation: the app shows "Waiting for the previous answer", and its
+   5 minutes only start once the job runs (15 minutes at most in all). When `error` comes with a `detail`, it is a
+   ready-made sentence and is spoken as is.
    The response includes the reply and the `conversationId` (the Claude session ID), which the browser keeps for
    follow-ups. When Claude Code fails with a known usage-limit, login or overload message, `error` is a short
    sentence in the job's language, for example `[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.`,

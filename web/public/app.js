@@ -332,19 +332,27 @@ async function ask(text) {
       try { j = await api('/ask', { method: 'POST', body: JSON.stringify({ text, conversationId, lang, requestId }), signal: sig }); deliveringJobs.add(j.id); break; }
       catch (e) { if (sig.aborted || attempt >= 1) throw e; await sleep(1500); }
     }
+    // The agent runs the jobs of one conversation one at a time: a job waiting for an earlier one (e.g. a background
+    // task's summary) is `queued`, and its 5 minutes only start when it runs. Agents without queues never send it.
     const t0 = Date.now();
-    while (j.status === 'running') {
-      if (Date.now() - t0 > 5 * 60e3) throw new Error(t('drive.tooLong'));
+    let ran = 0, still = false;
+    const late = () => Date.now() - t0 > 15 * 60e3 || (ran && Date.now() - ran > 5 * 60e3);
+    for (;;) {
+      if (j.status === 'running' && j.queued) { if (driveLabel.key !== 'state.queued') setDrive('thinking', { key: 'state.queued' }); }
+      else if (!ran) { ran = Date.now(); if (driveLabel.key === 'state.queued') setDrive('thinking'); }
+      if (j.status !== 'running') break;
+      if (ran && !still && Date.now() - ran > 12000) { still = true; setDrive('thinking', { key: 'state.stillThinking' }); }
+      if (late()) throw new Error(t('drive.tooLong'));
       await sleep(1200);
       if (sig.aborted) throw cancelled();
       try { j = await api('/ask/' + j.id, { timeout: 15000, signal: sig }); } catch (e) {
         // The agent forgot the job (it restarted): it will never finish, so don't keep "thinking" for 5 minutes.
         if (e.code === 'unknown_job') throw Object.assign(new Error(t('drive.jobLost')), { code: e.code });
-        if (sig.aborted || Date.now() - t0 > 5 * 60e3) throw e;
+        if (sig.aborted || late()) throw e;
       }
-      if (Date.now() - t0 > 12000 && Date.now() - t0 < 13300) setDrive('thinking', { key: 'state.stillThinking' });
     }
-    if (j.status === 'error') throw new Error(j.error || t('errors.generic'));
+    // With `detail` (Claude's own words), `error` is a sentence in the question's language, ready to be spoken as is.
+    if (j.status === 'error') throw Object.assign(new Error(j.error || t('errors.generic')), { ready: !!(j.error && j.detail) });
     conversationId = j.conversationId; store.set('conversationId', conversationId);
     const reply = j.reply || t('drive.emptyReply');
     history.push({ q: text, a: reply, ts: Date.now() }); history = history.slice(-30); store.set('history', history);
@@ -356,8 +364,7 @@ async function ask(text) {
     // we are not delivering this answer ourselves any more: let it pop up as a notification when it arrives
     if (j?.status === 'running') deliveringJobs.delete(j.id);
     if (e.code === 'cancelled') { setDrive('idle', { key: 'drive.cancelled' }); return; }
-    const msg = t('drive.problem', { msg: e.message });
-    if (!(await speak(msg, s => setDrive(s)))) return;
+    if (!(await (e.ready ? speak(e.message, s => setDrive(s), lang) : speak(t('drive.problem', { msg: e.message }), s => setDrive(s))))) return;
   } finally { if (inflight === ctl) inflight = null; }
   setDrive('idle'); idleSub();
 }
