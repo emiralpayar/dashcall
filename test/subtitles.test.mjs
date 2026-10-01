@@ -13,6 +13,12 @@ function load(ctx = {}, before = []) {
   return vm.runInContext(`({ ${NAMES.join(', ')} })`, ctx);
 }
 const S = load();
+// As on the page: i18n.js first, so getLang() (the UI language) is the default locale for matching words.
+const page = lang => load({
+  document: { addEventListener() {}, dispatchEvent() {}, documentElement: {}, querySelectorAll: () => [] },
+  localStorage: { getItem: k => (k === 'lang' ? lang : null), setItem() {} }, navigator: { language: 'en-US' },
+  CustomEvent: class {}, Event: class {},
+}, ['web/public/i18n.js']);
 // Results come from the vm realm (other Array/Object prototypes), which deepStrictEqual would reject.
 const copy = x => JSON.parse(JSON.stringify(x));
 const chunks = (...a) => copy(S.buildChunks(...a));
@@ -70,11 +76,6 @@ test('norm compares words by letters and digits, lowercased in the UI language',
   assert.equal(S.norm('IŞIK', 'tr'), 'ışık');
   assert.equal(S.norm('IŞIK', 'en'), 'işik');
   // with i18n.js loaded first (as on the page), the default is the UI language
-  const page = lang => load({
-    document: { addEventListener() {}, dispatchEvent() {}, documentElement: {}, querySelectorAll: () => [] },
-    localStorage: { getItem: k => (k === 'lang' ? lang : null), setItem() {} }, navigator: { language: 'en-US' },
-    CustomEvent: class {}, Event: class {},
-  }, ['web/public/i18n.js']);
   assert.equal(page('tr').norm('IŞIK'), 'ışık');
   assert.equal(page('en').norm('IŞIK'), 'işik');
 });
@@ -173,6 +174,22 @@ test('the matching locale is the fourth argument', () => {
   const words = [{ w: 'Tamam', t: 0 }, { w: 'ışık', t: 1.2 }, { w: 'yandı', t: 1.6 }];
   assert.equal(chunks('Tamam. IŞIK yandı.', words, 3, 'tr')[1].t, 1.2);
   assert.notEqual(chunks('Tamam. IŞIK yandı.', words, 3, 'en')[1].t, 1.2); // no match: proportional estimate
+});
+
+test("on the page, words are matched in the reply's language when it is passed, else in the UI language", () => {
+  const en = page('en'), tr = page('tr');
+  const at = (P, raw, words, lang) => copy(P.buildChunks(raw, words, 3, lang)).map(c => c.t);
+  // a Turkish reply while the UI is English: "IŞIK" only matches the voice's "ışık" in Turkish
+  const trWords = [{ w: 'Tamam', t: 0 }, { w: 'ışık', t: 1.2 }, { w: 'yandı', t: 1.6 }];
+  assert.deepEqual(at(en, 'Tamam. IŞIK yandı.', trWords, 'tr'), [0, 1.2]);
+  assert.notEqual(at(en, 'Tamam. IŞIK yandı.', trWords)[1], 1.2); // without the argument: the UI language, as before
+  assert.deepEqual(at(tr, 'Tamam. IŞIK yandı.', trWords), [0, 1.2]);
+  // an English reply while the UI is Turkish: "IT" is "it", not "ıt"
+  const enWords = [{ w: 'OK', t: 0 }, { w: 'it', t: 1 }, { w: 'is', t: 1.2 }, { w: 'done', t: 1.4 }];
+  assert.deepEqual(at(tr, 'OK. IT is done.', enWords, 'en'), [0, 1]);
+  assert.notEqual(at(tr, 'OK. IT is done.', enWords)[1], 1);
+  assert.equal(en.norm('IŞIK', 'tr'), 'ışık');
+  assert.equal(tr.norm('IT', 'en'), 'it');
 });
 
 test('chunk times never go backwards, whatever the timings look like', () => {

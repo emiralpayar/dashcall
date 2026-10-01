@@ -62,10 +62,12 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
 ## Neler yapabiliyor?
 
 - **Sürüş modu.** Tek, büyük bir konuşma düğmesi. Sen konuşursun; Claude tabanlı bir "dispatcher" (yönlendirici) ne
-  demek istediğini anlar, oturumlarında gereğini yapar ve kısa cevabı altyazıyla birlikte sesli okur. Sustuğunda kayıt
-  kendiliğinden biter; istersen yazarak da sorabilirsin.
+  demek istediğini anlar, oturumlarında gereğini yapar ve kısa cevabı altyazıyla birlikte sesli okur. Uzun bir cevabın
+  ilk cümlesi, geri kalanı hâlâ seslendirilirken okunmaya başlar. Sustuğunda kayıt kendiliğinden biter; istersen
+  yazarak da sorabilirsin.
 - **İşler.** Çalışan tüm Claude Code oturumlarını ve son 48 saatte bitenleri gör. Bir oturumun terminalini oku, ona
-  mesaj gönder ya da Esc ile durdur.
+  mesaj gönder, Esc ile durdur ya da izin ve menü sorularını 1, 2, 3 ve Enter tuşlarıyla yanıtla. Biten bir oturum,
+  son isteği ve son cevabıyla salt okunur açılır.
 - **Yeni iş.** Proje klasörünü seç, görevi sesle ya da yazarak anlat; Dashcall o iş için yeni bir Claude Code oturumu
   açar.
 - **Arka plan işleri.** "Şuna bak, bitince söyle." Dispatcher bir oturum başlatır ya da mevcut oturumu izler; iş
@@ -76,8 +78,11 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
   yönetebilirsin.
 - **Türkçe ve İngilizce.** Dili uygulamadan değiştir; konuşma tanıma, sesler ve dispatcher'ın cevapları da ona uyar.
 - **Telefona göre tasarlandı.** Telefonda sekmeler başparmağın ulaştığı alttaki çubukta durur; geniş ekranda sürüş
-  modu düğmeyi ve altyazıları yan yana gösterir.
-- **Hafif.** npm bağımlılığı olmayan iki Node.js sunucusu, whisper.cpp ile tamamen yerel konuşma tanıma.
+  modu düğmeyi ve altyazıları yan yana gösterir. Ana ekrana eklersen kendi simgesiyle, bir uygulama gibi tam ekran
+  açılır (internet bağlantısı gerekir, çevrimdışı çalışmaz).
+- **Hafif.** npm bağımlılığı olmayan iki Node.js sunucusu, whisper.cpp ile tamamen yerel konuşma tanıma. Ses etkinliği
+  algılama (VAD) sessizliği ve arka plan gürültüsünü whisper'a hiç ulaştırmaz, böylece bunlar uydurma kelimelere
+  dönüşmez.
 
 ## Nasıl çalışıyor?
 
@@ -100,7 +105,7 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
   [herdr](https://herdr.dev) kullanır; oturum kayıtlarını `~/.claude/projects` altından okur.
 - **Dispatcher**, her soru için çalışan ve sohbet boyunca devam ettirilen başsız bir `claude -p`'dir.
   [`dispatcher/CLAUDE.md`](dispatcher/CLAUDE.md) talimatlarına uyar ve oturumlara yalnızca
-  [`dashcall` CLI](docs/CLI.md) üzerinden dokunur.
+  [`dashcall` CLI](docs/CLI.md) üzerinden dokunur; Claude Code ona başka bir komut çalıştırma izni vermez.
 - **`web/`** tek sayfalık uygulamayı sunar, girişi yönetir ve API çağrılarını agent'a iletir.
 
 Ayrıntılar için [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (İngilizce).
@@ -108,25 +113,31 @@ Ayrıntılar için [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (İngilizce).
 ## Hızlı kurulum
 
 Agent için bir Mac, web uygulaması için Docker kurulu herhangi bir Linux sunucu gerekir. İkisi birbirine Tailscale
-üzerinden ulaşabilir. Mac'te [Claude Code](https://code.claude.com/docs/en/setup) ve [herdr](https://herdr.dev) kurulu
-olmalı, Claude Code oturumların da herdr içinde çalışmalı. Kısaca:
+üzerinden ulaşabilir. Mac'te güncel bir [Claude Code](https://code.claude.com/docs/en/setup) (`claude update`) ve
+[herdr](https://herdr.dev) kurulu olmalı, Claude Code oturumların da herdr içinde çalışmalı. Kısaca:
 
 ```sh
 # Mac'te
-brew install node ffmpeg whisper-cpp      # Node.js 22 veya üstü
+brew install node ffmpeg whisper.cpp      # Node.js 22 veya üstü, whisper.cpp 1.8.3 veya üstü
 git clone https://github.com/emiralpayar/dashcall.git && cd dashcall
-./scripts/download-model.sh
-cp .env.example .env        # DASHCALL_TOKEN ve DASHCALL_BIND değerlerini gir
+./scripts/download-model.sh   # whisper modeli (yaklaşık 574 MB) ve sessizliği dışarıda tutan VAD modeli
+cp .env.example .env          # DASHCALL_TOKEN ve DASHCALL_BIND değerlerini gir
 npm run agent
 
 # sunucuda
 git clone https://github.com/emiralpayar/dashcall.git && cd dashcall/web
-cp .env.example .env        # şifre, secret, agent adresi ve token'ı gir
+cp .env.example .env          # şifre, secret, agent adresi ve token'ı gir
 docker compose up -d --build
 ```
 
-Claude Code, herdr, Tailscale, HTTPS, agent'ın açılışta başlaması ve kurulumun doğrulanması adım adım burada anlatılıyor:
-**[docs/INSTALL.md](docs/INSTALL.md)** (İngilizce).
+Web uygulamasını HTTPS arkasına al, telefonunda aç ve ana ekrana ekle. Girişte şifrenin yanında bir de doğrulama kodu
+istemek için `DASHCALL_TOTP_SECRET` ekle (`node scripts/totp-secret.mjs` bir tane üretir). Claude Code, herdr,
+Tailscale, HTTPS, iki adımlı doğrulama, agent'ın açılışta başlaması ve kurulumun doğrulanması adım adım burada
+anlatılıyor: **[docs/INSTALL.md](docs/INSTALL.md)** (İngilizce).
+
+**0.1.0'dan mı güncelliyorsun?** Her cihazda bir kez yeniden giriş yapman gerekecek, indirilecek yeni bir model var ve
+klasör susturmaları artık yalnızca klasör adının tamamıyla eşleşiyor.
+[Güncelleme notlarını](CHANGELOG.md#upgrading-from-010) izle (İngilizce).
 
 ## Dil desteği
 
@@ -146,13 +157,18 @@ okuması için `[[PR|pi ar]]` gibi bir telaffuz işaretiyle yazar; altyazıda ya
 **Kurmadan önce oku.** Girişi geçen herkes, Claude Code üzerinden Mac'inde istediği komutu çalıştırabilir. Tek koruma
 şifrendir.
 
-- Dispatcher yalnızca `dashcall` CLI'yı çalıştırabilir. Okuduğu metinler (oturum çıktıları, araştırma sonuçları,
-  yanlış anlaşılmış bir ses kaydı) prompt injection içerebilir ve bunlar `dashcall` üzerinden oturumlarına hâlâ yazı
-  yazabilir, tuşa basabilir ve yeni oturum açabilir.
+- Dispatcher yalnızca `dashcall` CLI'yı çalıştırabilir ve bunu Claude Code zorunlu kılar: tek aracı Bash'tir, Bash de
+  yalnızca `dashcall` komutlarını kabul eder (Claude Code'un `cat` gibi salt okunur komutları da çalışır, ama
+  `dispatcher/` dışındaki dosyaları okuyamaz). Yine de okuduğu metinler (oturum çıktıları, araştırma sonuçları, yanlış
+  anlaşılmış bir ses kaydı) prompt injection içerebilir ve bunlar `dashcall` üzerinden oturumlarına yazı yazabilir,
+  tuşa basabilir ve yeni oturum açabilir. `DASHCALL_DISPATCH_UNRESTRICTED=1` bu kısıtlamayı hata ayıklamak için
+  kaldırır; güvenli değildir.
 - Agent'ı özel bir ağda (Tailscale) tut, asla internete açma. Her istek bearer token gerektirir.
-- Web uygulamasında isteğe bağlı iki adımlı doğrulamalı (`DASHCALL_TOTP_SECRET`) hız sınırlı şifre girişi, 30 gün
-  kullanılmayınca geçersizleşen imzalı HttpOnly çerezler, API yazma isteklerinde aynı köken kontrolü ve sıkı bir
-  Content Security Policy var. Uygulamayı yalnızca HTTPS üzerinden sun.
+- Web uygulamasında hız sınırlı bir şifre girişi (15 dakikada IP başına 10, toplamda 30 başarısız deneme) ve isteğe
+  bağlı olarak bir doğrulama uygulamasının kodlarıyla iki adımlı doğrulama (`DASHCALL_TOTP_SECRET`) var. Girişler,
+  30 gün kullanılmayınca geçersizleşen (`DASHCALL_SESSION_DAYS`) imzalı HttpOnly çerezlerdir;
+  `DASHCALL_SESSION_EPOCH` değerini artırmak tüm cihazlardaki oturumları kapatır. API yazma istekleri aynı kökenden
+  gelmek zorundadır ve sıkı bir Content Security Policy uygulanır. Uygulamayı yalnızca HTTPS üzerinden sun.
 - Yeni oturumlar yalnızca `DASHCALL_WORKSPACE_ROOT` altında açılabilir (varsayılan: ev dizinin).
 
 Ayrıntılar [SECURITY.md](SECURITY.md) dosyasında. Güvenlik açıklarını lütfen orada anlatıldığı gibi gizli bildir.

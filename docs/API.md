@@ -281,5 +281,6 @@ unmuted. Errors: `key_required`, `not_found`.
 | `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`, plus the web app manifest and its icons (`/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`, `/apple-touch-icon.png`), which browsers fetch without cookies. |
 
 All static responses carry the security headers described in [ARCHITECTURE.md](ARCHITECTURE.md#security-model-briefly).
-When a request carries a valid cookie that was issued more than a day ago, its response (static file, `/api/*` or
-error) also sets a renewed cookie, so devices in use stay logged in.
+When a request carries a valid cookie that was issued more than a day ago (or more than half of
+`DASHCALL_SESSION_DAYS` ago, if that is shorter), its response (static file, `/api/*` or error) also sets a renewed
+cookie, so devices in use stay logged in.

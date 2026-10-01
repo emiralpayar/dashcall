@@ -161,7 +161,7 @@ test('a whisper-cli too old for the flags is an error, not silence', async t => 
   const a = await sttAgent(t, 'echo "error: unknown argument: -sns" >&2; exit 0', { DASHCALL_WHISPER_VAD_MODEL: 'off' });
   const r = await sttAt(a.port, '?lang=tr');
   await assertError(r.clone(), 500, 'internal');
-  assert.match((await r.json()).error, /does not support -sns.*brew upgrade whisper-cpp/);
+  assert.match((await r.json()).error, /does not support -sns.*brew upgrade whisper\.cpp/);
 });
 
 test('speak picks a voice of the requested language', async () => {

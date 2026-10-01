@@ -83,7 +83,10 @@ function unlockAudio() {
   if (silent) return;
   player.src = silentWavUrl(); player.play().catch(() => {});
 }
-let lastSpoken = store.get('lastReply', '');
+// The last answer, for the repeat button, and the language it was spoken in, so a repeat after a language switch keeps
+// its voice and subtitle matching. A `lastReply` saved without `lastReplyLang` (0.1.0) is repeated in the UI language.
+let lastSpoken = store.get('lastReply', ''), lastSpokenLang = store.get('lastReplyLang', null);
+function setLastSpoken(text, lang) { lastSpoken = text; lastSpokenLang = lang; store.set('lastReply', text); store.set('lastReplyLang', lang); }
 // Voice choice is per language; the old single 'voice' key was Turkish-only.
 const VOICES = { tr: [['tr-TR-EmelNeural', 'Emel'], ['tr-TR-AhmetNeural', 'Ahmet']], en: [['en-US-AvaNeural', 'Ava'], ['en-US-AndrewNeural', 'Andrew']] };
 const voiceFor = l => { const v = store.get('voice.' + l, l === 'tr' ? store.get('voice', null) : null); return v === 'local' || VOICES[l].some(x => x[0] === v) ? v : VOICES[l][0][0]; };
@@ -465,7 +468,7 @@ async function ask(text) {
     conversationId = j.conversationId; store.set('conversationId', conversationId);
     const reply = j.reply || t('drive.emptyReply');
     history.push({ q: text, a: reply, ts: Date.now() }); history = history.slice(-30); store.set('history', history);
-    lastSpoken = reply; store.set('lastReply', reply);
+    setLastSpoken(reply, lang);
     renderActions();
     if (j.notificationId) markRead([j.notificationId]); // delivered right here: don't count it as unread while it plays
     if (!(await speak(reply, s => setDrive(s), lang))) return;
@@ -509,7 +512,10 @@ $('resend').onclick = async () => {
     await ask(text);
   } catch (e) { setDrive('idle', e.message); }
 };
-$('repeat').onclick = async () => { unlockAudio(); if (lastSpoken && driveState === 'idle' && await speak(lastSpoken, s => setDrive(s))) idleSub(); };
+$('repeat').onclick = async () => {
+  unlockAudio();
+  if (lastSpoken && driveState === 'idle' && await speak(lastSpoken, s => setDrive(s), lastSpokenLang in LOCALES ? lastSpokenLang : getLang())) idleSub();
+};
 $('newchat').onclick = () => { conversationId = null; store.set('conversationId', null); history = []; store.set('history', []); showSaid(''); idleSub('drive.newChatSub'); renderActions(); };
 $('typeform').onsubmit = e => {
   e.preventDefault(); unlockAudio();
@@ -778,10 +784,11 @@ async function openNotif(n) {
   if (n.conversationId) { conversationId = n.conversationId; store.set('conversationId', conversationId); }
   history.push({ q: n.kind === 'task' ? '🔔 ' + plain(n.title || t('notifs.taskFallback')) : n.q || t('notifs.fallbackQ'), a: n.text, ts: Date.now() });
   history = history.slice(-30); store.set('history', history);
-  lastSpoken = n.text; store.set('lastReply', n.text);
+  const lang = n.lang || getLang();
+  setLastSpoken(n.text, lang);
   showSaid(history[history.length - 1].q); renderActions();
   if (driveState === 'speaking') stopSpeaking();
-  if ((driveState === 'idle' || driveState === 'speaking') && await speak(n.text, st => setDrive(st), n.lang || getLang())) { setDrive('idle'); idleSub(); }
+  if ((driveState === 'idle' || driveState === 'speaking') && await speak(n.text, st => setDrive(st), lang)) { setDrive('idle'); idleSub(); }
 }
 pollNotifs(); setInterval(pollNotifs, 8000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollNotifs(); });

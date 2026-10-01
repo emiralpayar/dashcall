@@ -34,7 +34,7 @@ Relative paths are resolved against the repo root. Binary settings accept a bare
 | `DASHCALL_CLAUDE_BIN` | `claude` | no | Claude Code binary. |
 | `DASHCALL_HERDR_BIN` | `herdr` | no | herdr binary. |
 | `DASHCALL_FFMPEG_BIN` | `ffmpeg` | no | ffmpeg binary. Used for speech-to-text and for the `say` fallback. |
-| `DASHCALL_WHISPER_BIN` | `whisper-cli` | no | whisper.cpp command-line binary (Homebrew's `whisper-cpp` installs `whisper-cli`). |
+| `DASHCALL_WHISPER_BIN` | `whisper-cli` | no | whisper.cpp command-line binary (Homebrew's `whisper.cpp` formula installs `whisper-cli`). |
 | `DASHCALL_TTS_PYTHON` | `tts/.venv/bin/python` | no | Python with `edge-tts` installed. If it is missing or fails, the agent falls back to macOS `say`. |
 | `TZ` | system time zone | no | Time zone for the current time given to the dispatcher, which it uses to resolve "tomorrow", "in an hour" and so on. For example `Europe/Istanbul`. |
 
@@ -130,3 +130,4 @@ contains your recent questions and answers, so anyone with access to the device 
 | `conversationId` | The current dispatcher conversation. **New chat** clears it. |
 | `history` | The last 30 questions and answers of the current conversation, shown under **History** in Drive mode. **New chat** clears it. |
 | `lastReply` | The last spoken answer, for the repeat button in Drive mode. |
+| `lastReplyLang` | The language of `lastReply`, so the repeat button reads it with the same voice after you switch languages. |

@@ -106,13 +106,13 @@ bindings. To check what Dashcall will see, run `herdr agent list`.
 ### Speech: ffmpeg, whisper.cpp and edge-tts
 
 ```sh
-brew install ffmpeg whisper-cpp
+brew install ffmpeg whisper.cpp
 which ffmpeg whisper-cli     # both should print a path
-brew list --versions whisper-cpp   # 1.8.3 or newer; if older: brew upgrade whisper-cpp
+brew list --versions whisper.cpp   # 1.8.3 or newer; if older: brew upgrade whisper.cpp
 ```
 
-Dashcall uses whisper.cpp's voice activity detection, which needs whisper.cpp 1.7.6 or newer (1.8.3 or newer for the
-default VAD model).
+Homebrew renamed the formula from `whisper-cpp` to `whisper.cpp`; the old name still works. Dashcall uses whisper.cpp's
+voice activity detection, which needs whisper.cpp 1.7.6 or newer (1.8.3 or newer for the default VAD model).
 
 Neural voices come from [edge-tts](https://github.com/rany2/edge-tts), which runs in a small Python virtual
 environment. You install it in the next step, after cloning. It is optional: without it the agent uses macOS `say`.
@@ -375,6 +375,7 @@ Using another proxy, such as nginx or Traefik? Make sure it:
 ```sh
 cd /path/to/dashcall
 git pull
+claude update                 # the dispatcher's permission flags need a recent Claude Code
 ./scripts/download-model.sh   # fetches models a new version needs; skips the ones you have
 launchctl kickstart -k gui/$(id -u)/com.dashcall.agent
 ```
@@ -388,7 +389,9 @@ docker compose up -d --build
 ```
 
 Check [CHANGELOG.md](../CHANGELOG.md) for renamed or new settings, and compare your `.env` files with the
-`.env.example` files.
+`.env.example` files. Coming from 0.1.0, read its
+[upgrade notes](../CHANGELOG.md#upgrading-from-010): every device logs in once, and folder mutes match whole folder
+names now.
 
 ## 11. Uninstalling
 
@@ -401,7 +404,7 @@ rm -rf /path/to/dashcall     # also deletes the brain, notifications and logs st
 ```
 
 To keep your data, first copy `dispatcher/brain/` and `state/` out of the repo. Uninstall herdr, Tailscale, ffmpeg and
-whisper-cpp separately if you no longer need them (for example `brew uninstall whisper-cpp ffmpeg node@22`).
+whisper.cpp separately if you no longer need them (for example `brew uninstall whisper.cpp ffmpeg node@22`).
 
 **Server:**
 

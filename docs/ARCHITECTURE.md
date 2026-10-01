@@ -19,7 +19,7 @@ Dashcall has four parts. None of them has npm dependencies.
 | Part | Files | Runs on | Job |
 | --- | --- | --- | --- |
 | **Web app** | `web/server.mjs`, `web/totp.mjs`, `web/public/` | Any server (Docker image `node:22-alpine`) | Password login (optionally with one-time codes), signed cookie, security headers, serves the single-page app, forwards `/api/*` to the agent with the bearer token. Holds no state apart from the login rate limits and the last used one-time code (in memory). |
-| **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/stt-text.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
+| **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/stt-text.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/jsonfile.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
 | **Dispatcher** | `dispatcher/CLAUDE.md`, `agent/bin/dashcall` | Spawned by the agent | A headless `claude -p` per question that works out what the user means and acts through the `dashcall` CLI, the only command it is allowed to run. |
 | **TTS helper** | `tts/speak.py` | Spawned by the agent | Calls edge-tts and returns MP3 audio plus word timings for synced subtitles. |
 
@@ -106,7 +106,9 @@ rest: the title, the last user prompt and the last assistant message.
    keeps one segment in flight ahead of the one playing. Segment 2 is kept short because it has only segment 1's
    playing time to arrive. All segments play one after another on the same `Audio` element, the one a tap unlocked,
    because a new element could be blocked by autoplay rules in car and iOS browsers. Each segment gets subtitles
-   from its own word timings. The talk button shows *speaking* from the first segment to the end of the last.
+   from its own word timings, matched to the text in the reply's language (`buildChunks` in
+   `web/public/subtitles.js`), so Turkish I/ı line up even while the app is in English. The talk button shows
+   *speaking* from the first segment to the end of the last.
    Stopping (a tap, a new answer) cancels playback and the segment requests still waiting for an answer; a response
    that has already started arriving finishes downloading but is never played. If a later segment fails, the browser
    voice reads the rest of the reply from that segment on. Each segment is synthesized on its own, so if edge-tts
@@ -161,7 +163,8 @@ A *watch* is a record in `state/watches.json` that says "tell the user when this
   answer to a question asked before the page was closed, it plays a chime (not in silent mode) and shows a popup with
   **Listen** and **Later**. Returning to the app pops up the most recent unread one.
 - **Listen** reads a notification aloud in its own language (its `lang` field), whatever the UI language is now.
-  Likewise, an answer is spoken in the language the question was asked in, even if the user switches meanwhile.
+  Likewise, an answer is spoken in the language the question was asked in, even if the user switches meanwhile, and
+  **Replay** repeats the last answer in that language too.
 - Once the browser has shown or spoken a notification, it marks it read with `POST /api/notifications/read`.
 - Opening a notification continues its conversation, so "tell me more" has context. While Drive mode is listening,
   transcribing or waiting for an answer, opening one is refused with a short message and it stays unread: the

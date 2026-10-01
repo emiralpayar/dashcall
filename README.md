@@ -72,10 +72,11 @@ silent by default; run `DASHCALL_DEMO_SOUND=1 npm run demo` to hear answers in y
 ## Features
 
 - **Drive mode.** One big talk button. You speak, a Claude "dispatcher" works out what you mean, acts on your
-  sessions, and reads a short answer aloud with synced subtitles. Recording stops after a pause, and you can type
-  instead.
+  sessions, and reads a short answer aloud with synced subtitles. A long answer starts playing after its first
+  sentence while the rest is still being synthesized. Recording stops after a pause, and you can type instead.
 - **Sessions.** See every running Claude Code session and the last 48 hours of finished ones. Read a session's
-  terminal, send it a prompt, or press Esc to interrupt it.
+  terminal, send it a prompt, press Esc to interrupt it, or answer a permission or menu prompt with the 1, 2, 3 and
+  Enter keys. A finished session opens read-only with its last prompt and reply.
 - **New job.** Pick a project folder, describe the task (by voice or text), and Dashcall starts a new Claude Code
   session for it.
 - **Background tasks.** "Look into X and tell me when you're done." The dispatcher starts or watches a session and
@@ -86,8 +87,11 @@ silent by default; run `DASHCALL_DEMO_SOUND=1 npm run demo` to hear answers in y
 - **English and Turkish.** Switch the language in the app. Speech recognition, voices and the dispatcher's replies
   follow it.
 - **Made for phones.** On a phone the tabs sit in a bottom bar within thumb reach; on a wide screen, Drive mode puts
-  the button and subtitles side by side.
-- **Small footprint.** Two Node.js servers with no npm dependencies, plus local speech-to-text with whisper.cpp.
+  the button and subtitles side by side. Add it to your home screen and it opens full screen with its own icon, like
+  an app (it needs a connection; there is no offline mode).
+- **Small footprint.** Two Node.js servers with no npm dependencies, plus local speech-to-text with whisper.cpp. Voice
+  activity detection keeps silence and background noise away from whisper, so they don't come back as made-up
+  words.
 
 ## How it works
 
@@ -110,7 +114,7 @@ silent by default; run `DASHCALL_DEMO_SOUND=1 npm run demo` to hear answers in y
   prompt terminal panes, and reads session transcripts from `~/.claude/projects`.
 - **The dispatcher** is a headless `claude -p` run for each question, resumed per conversation. It follows
   [`dispatcher/CLAUDE.md`](dispatcher/CLAUDE.md) and acts on sessions only through the
-  [`dashcall` CLI](docs/CLI.md).
+  [`dashcall` CLI](docs/CLI.md), the only command Claude Code lets it run.
 - **`web/`** serves the single-page app, handles login and forwards API calls to the agent.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full picture.
@@ -118,25 +122,30 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full picture.
 ## Quick start
 
 You need a Mac (for the agent) and any Linux server with Docker (for the web app). They can reach each other over
-Tailscale. On the Mac, [Claude Code](https://code.claude.com/docs/en/setup) and [herdr](https://herdr.dev) must be
-installed, and your Claude Code sessions must run inside herdr. The short version:
+Tailscale. On the Mac, an up-to-date [Claude Code](https://code.claude.com/docs/en/setup) (`claude update`) and
+[herdr](https://herdr.dev) must be installed, and your Claude Code sessions must run inside herdr. The short version:
 
 ```sh
 # on the Mac
-brew install node ffmpeg whisper-cpp      # Node.js 22 or newer
+brew install node ffmpeg whisper.cpp      # Node.js 22 or newer, whisper.cpp 1.8.3 or newer
 git clone https://github.com/emiralpayar/dashcall.git && cd dashcall
-./scripts/download-model.sh
-cp .env.example .env        # set DASHCALL_TOKEN and DASHCALL_BIND
+./scripts/download-model.sh   # the whisper model (about 574 MB) and the VAD model that keeps silence out
+cp .env.example .env          # set DASHCALL_TOKEN and DASHCALL_BIND
 npm run agent
 
 # on the server
 git clone https://github.com/emiralpayar/dashcall.git && cd dashcall/web
-cp .env.example .env        # set password, secret, agent URL and token
+cp .env.example .env          # set password, secret, agent URL and token
 docker compose up -d --build
 ```
 
-The step-by-step guide covers Claude Code, herdr, Tailscale, HTTPS, running the agent at login, and checking that
-everything works: **[docs/INSTALL.md](docs/INSTALL.md)**.
+Put the web app behind HTTPS, open it on your phone and add it to the home screen. For a second login factor, add
+`DASHCALL_TOTP_SECRET` (`node scripts/totp-secret.mjs` makes one). The step-by-step guide covers Claude Code, herdr,
+Tailscale, HTTPS, two-factor login, running the agent at login, and checking that everything works:
+**[docs/INSTALL.md](docs/INSTALL.md)**.
+
+**Updating from 0.1.0?** Every device logs in once, there is a new model to download, and folder mutes match whole
+folder names now. Follow the [upgrade notes](CHANGELOG.md#upgrading-from-010).
 
 ## Languages
 
@@ -156,13 +165,17 @@ The first visit follows your browser's language. Adding a language is a well-sco
 **Read this before deploying.** Anyone who gets past the login can run arbitrary commands on your Mac through Claude
 Code. The password is the whole perimeter.
 
-- The dispatcher may only run the `dashcall` CLI. Text it reads (session output, research results, a misheard
-  transcript) can contain prompt injections, and through `dashcall` those can still type into your sessions, press
-  keys in them and start new ones.
+- The dispatcher may only run the `dashcall` CLI, and Claude Code enforces it: Bash is its only tool and accepts
+  only `dashcall` commands, apart from Claude Code's read-only ones (such as `cat`), which can't read outside
+  `dispatcher/`. Text it reads (session output, research results, a misheard transcript) can still contain prompt
+  injections, and through `dashcall` those can type into your sessions, press keys in them and start new ones.
+  `DASHCALL_DISPATCH_UNRESTRICTED=1` lifts the restriction for debugging; it is unsafe.
 - Keep the agent on a private network (Tailscale) and never expose it publicly. Every request needs the bearer token.
-- The web app has a rate-limited password login with optional two-factor codes (`DASHCALL_TOTP_SECRET`), signed
-  HttpOnly cookies that expire after 30 days without use, same-origin checks on API writes and a strict Content
-  Security Policy. Serve it over HTTPS only.
+- The web app has a rate-limited password login (10 failed attempts per IP and 30 in total per 15 minutes) with
+  optional two-factor codes from an authenticator app (`DASHCALL_TOTP_SECRET`). Logins are signed HttpOnly cookies
+  that expire after 30 days without use (`DASHCALL_SESSION_DAYS`), and raising `DASHCALL_SESSION_EPOCH` signs out
+  every device. API writes need a same-origin request, and a strict Content Security Policy applies. Serve it over
+  HTTPS only.
 - New sessions can only start under `DASHCALL_WORKSPACE_ROOT`, which defaults to your home directory.
 
 Details are in [SECURITY.md](SECURITY.md). Please report vulnerabilities privately, as described there.

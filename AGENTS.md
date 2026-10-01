@@ -33,10 +33,18 @@ web/                   login + static SPA + /api proxy (Node, no deps, Docker)
   server.mjs           settings at the top of the file, then everything else
   totp.mjs             one-time codes (RFC 6238) for the optional two-factor login
   public/              the SPA: index.html, app.js, subtitles.js, login.html, login.js, i18n.js, style.css,
-                       manifest.webmanifest + icons
+                       manifest.webmanifest + icons (icon.svg, icon-192/512.png, icon-maskable-512.png,
+                       apple-touch-icon.png)
 tts/speak.py           edge-tts wrapper (MP3 + word timings)
-scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh, totp-secret.mjs
-test/                  node:test suites (no herdr, Claude or network needed)
+scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh (whisper + VAD models),
+                       totp-secret.mjs (secret for two-factor login)
+test/                  node:test suites (no herdr, Claude or network needed), helpers.mjs
+  agent, web, cli      the real servers and CLI against fake claude/herdr/ffmpeg/whisper binaries or a stub agent
+  app, speak, subtitles
+                       the SPA in node:vm: app.js in a fake browser (DOM, fetch, mic, audio), segmented speech and
+                       the subtitle helpers; nothing makes a sound
+  dispatch, lib, brain, store, jsonfile, stt-text, lang, totp, i18n, mock-agent
+                       tests of the matching module or script; i18n checks both string tables
 docs/                  user documentation, example configs
 ```
 
@@ -44,7 +52,7 @@ docs/                  user documentation, example configs
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs every test (176) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
+| `npm test` | Runs every test (178) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
 | `node --test test/web.test.mjs` | Runs a single test file. |
 | `npm run check` | Syntax-checks every JavaScript file (`node --check`), including `agent/bin/dashcall`. |
 | `npm run demo` | Web app + mock agent at <http://localhost:8080>, password `demo`. Silent: subtitles only, no audio. Use it for all UI work. |
@@ -69,6 +77,18 @@ you say you're done.
   in HTML. Never hard-code UI text. English should be natural and concise. Turkish should be natural too, not a
   literal translation. `test/i18n.test.mjs` is the safety net: it fails if `en` and `tr` differ in keys or `{placeholders}`,
   if a key used in the HTML or JS is missing, or if an error code the servers can return has no `errors.<code>`.
+- **The SPA is classic scripts, no modules and no build.** `index.html` loads `i18n.js`, then `subtitles.js`, then
+  `app.js`; they share one global scope, so a top-level name may be declared only once (`test/subtitles.test.mjs`
+  fails on a clash). The subtitle and markup helpers in `subtitles.js` are pure (no DOM), so they can be unit-tested;
+  keep them that way. Car and older iOS browsers run this code:
+  avoid recent syntax such as `??=`, `||=`, `&&=` and `.at()` (`test/speak.test.mjs` checks the speech code), and
+  don't rely on `crypto.randomUUID`, which needs HTTPS and a recent browser.
+- **Strict CSP.** No inline `<script>`, `style="…"` attributes or `on…="…"` handlers anywhere in `web/public`, not even
+  in `innerHTML` templates: the CSP is `script-src 'self'; style-src 'self'`, and `test/web.test.mjs` scans for them.
+  Use classes in `style.css` and `addEventListener` / `onclick` from JS.
+- **State files go through `agent/jsonfile.mjs`** (`readJson`, `updateJson`, used by `brain.mjs` and `store.mjs`):
+  atomic writes under a lock shared with the `dashcall` CLI, and a file that can't be parsed is never written over.
+  Don't read or write `brain.json` or `state/*.json` with plain `fs` calls.
 - **Error contract.** Every error response is `{"error": "<English message>", "code": "<snake_case>"}`. In the agent,
   throw `httpError(status, code, message)` from `agent/errors.mjs`; in the web app, use `fail(res, status, code, message)`.
   Reuse existing codes. For a new code, add it to [docs/API.md](docs/API.md) and add `errors.<code>` to `i18n.js` in
@@ -76,9 +96,11 @@ you say you're done.
 - **Server-side text is English**, including logs and messages. Text that reaches the user through speech (such as
   the failure notification) is chosen per language.
 - **Tests are required** for bug fixes and for new behaviour that can be tested without herdr or Claude: HTTP
-  validation, stores, parsing, language handling. Use `test/helpers.mjs`: `startServer(script, env)` starts a server
-  and resolves once it logs where it listens (pass `PORT: '0'` / `DASHCALL_PORT: '0'` for a free port, then read
-  `.port`), and `tempDir()` gives a temp folder. Point `DASHCALL_STATE_DIR` and `DASHCALL_BRAIN_FILE` at a temp dir.
+  validation, stores, parsing, language handling, and the SPA's behaviour. Use `test/helpers.mjs`:
+  `startServer(script, env)` starts a server and resolves once it logs where it listens (pass `PORT: '0'` /
+  `DASHCALL_PORT: '0'` for a free port, then read `.port`), and `tempDir()` gives a temp folder. Point
+  `DASHCALL_STATE_DIR` and `DASHCALL_BRAIN_FILE` at a temp dir. For the SPA, `boot()` in `test/app.test.mjs` runs
+  the real page scripts in a fake browser with a fake `fetch`, microphone and speech, on a fast virtual clock.
 - **Documentation is part of the change.** API changes go in `docs/API.md`, CLI changes in `docs/CLI.md` (and the
   usage text in `agent/bin/dashcall`), and user-visible changes in `CHANGELOG.md` under `[Unreleased]`.
 
@@ -111,9 +133,10 @@ These protect the maintainer's real machine and private data. Follow them strict
 - **Never start or prompt real herdr sessions** from tests or experiments (`/api/sessions/new`, `dashcall new|task|send|keys`).
   Tests set `DASHCALL_HERDR_BIN` to a nonexistent path; keep it that way.
 - **Never point tests at the real brain or state.** Always use temp dirs.
-- **Security-sensitive code** needs extra care and a test: auth, cookies, the proxy, the same-origin check,
-  anything that spawns processes, path checks (`DASHCALL_WORKSPACE_ROOT`) and the dispatcher's flags. See
-  [SECURITY.md](SECURITY.md).
+- **Security-sensitive code** needs extra care and a test: auth, cookies, one-time codes (`web/totp.mjs`), the
+  proxy, the same-origin check, anything that spawns processes, path checks (`DASHCALL_WORKSPACE_ROOT`) and the
+  dispatcher's flags (`dispatcherArgs` in `agent/dispatch.mjs`, tested in `test/dispatch.test.mjs`). Never give the
+  dispatcher more than `Bash(dashcall:*)`, and never pass it `DASHCALL_TOKEN`. See [SECURITY.md](SECURITY.md).
 
 ## Verifying UI changes
 
@@ -135,7 +158,7 @@ For automated screenshots or checks, drive the demo with a headless browser, mut
 Claude Code loads `CLAUDE.md` from the working directory and all parent directories. The dispatcher runs in
 `dispatcher/`, so without precautions it would also load the root `CLAUDE.md`, which imports this file. The agent
 therefore passes `--settings {"claudeMdExcludes": [<repo>/CLAUDE.md, <repo>/AGENTS.md, <repo>/.claude/CLAUDE.md]}`
-to every dispatcher run (`runDispatcher` in `agent/server.mjs`).
+to every dispatcher run, next to its permission flags (`dispatcherArgs` in `agent/dispatch.mjs`).
 
 Consequences:
 
@@ -143,7 +166,8 @@ Consequences:
 - If you move or rename these files, update that exclude list.
 - Changes to `dispatcher/CLAUDE.md` change product behaviour. Keep it in English, keep trigger examples in both
   languages, keep the `[[written|spoken]]` markup rule limited to Turkish replies, and keep it in sync with the
-  `dashcall` CLI and the `[SYSTEM NOTICE — not written by the user]` marker in `agent/prompts.mjs`.
+  `dashcall` CLI, the dispatcher's permissions (only `dashcall`, one command per call) and the
+  `[SYSTEM NOTICE — not written by the user]` marker in `agent/prompts.mjs`.
 
 ## Adding a language
 

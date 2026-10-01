@@ -42,7 +42,7 @@ class El {
   getBoundingClientRect() { return { top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }; }
 }
 
-function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST } = {}) {
+function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST, storage: saved = {} } = {}) { // saved: localStorage at load
   const dom = { all: new Set(), byId: new Map(), toasts: [] };
   for (const m of HTML.matchAll(/<([a-z][\w-]*)\b([^>]*)>/gi)) {
     const attrs = Object.fromEntries([...m[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map(a => [a[1], a[2] ?? '']));
@@ -122,7 +122,7 @@ function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST } = {}) {
   class SpeechSynthesisUtterance { constructor(text) { this.text = text; } }
   class Audio { play() { return Promise.resolve(); } pause() {} load() {} }
   class FakeURL extends URL { static createObjectURL() { return 'blob:fake'; } static revokeObjectURL() {} }
-  const storage = new Map();
+  const storage = new Map(Object.entries(saved));
 
   const ctx = {
     document, navigator, console, crypto, location: { href: '/' },
@@ -425,5 +425,38 @@ test('a microphone that fails to start leaves nothing behind', async () => {
     await h.until(() => h.get('driveState') === 'idle' && /cannot record/.test(h.$('state').textContent), 'the recorder error');
     assert.equal(h.mic.tracksStopped, 1);
     assert.equal(h.get('activeListen'), null);
+  } finally { h.close(); }
+});
+
+test('Replay speaks the last answer in the language it was given in, also after a language switch', async () => {
+  let h = boot({ routes: {
+    'POST /ask': () => ({ id: 'j', status: 'running' }),
+    'GET /ask/j': () => ({ id: 'j', status: 'done', lang: 'tr', reply: 'Işık yandı.', conversationId: CONV_A }),
+  } });
+  try {
+    h.get("setLang('tr')");
+    h.typeQuestion('ışık ne durumda?');
+    await h.until(() => h.spoken.length === 1 && h.get('driveState') === 'idle', 'the answer');
+    h.get("setLang('en')");
+    h.$('repeat').onclick();
+    await h.until(() => h.spoken.length === 2 && h.get('driveState') === 'idle', 'the replay');
+    assert.deepEqual(h.spoken, ['Işık yandı.', 'Işık yandı.']);
+    assert.deepEqual(h.spokenLangs, ['tr-TR', 'tr-TR']);
+    assert.deepEqual(h.calls('POST /speak').map(c => c.body.lang), ['tr', 'tr']);
+    // an opened notification is replayed in its own language as well
+    h.get(`openNotif(${JSON.stringify({ id: 'n1', read: true, kind: 'answer', lang: 'en', q: 'Earlier question', text: 'Earlier answer.' })})`);
+    await h.until(() => h.spoken.length === 3 && h.get('driveState') === 'idle', 'the notification');
+    h.get("setLang('tr')");
+    h.$('repeat').onclick();
+    await h.until(() => h.spoken.length === 4 && h.get('driveState') === 'idle', 'the replay of the notification');
+    assert.deepEqual(h.spokenLangs.slice(2), ['en-US', 'en-US']);
+  } finally { h.close(); }
+
+  // a last answer saved by 0.1.0 has no language: it is replayed in the UI language, as before
+  h = boot({ storage: { lang: 'tr', lastReply: JSON.stringify('Eski cevap.') } });
+  try {
+    h.$('repeat').onclick();
+    await h.until(() => h.spoken.length === 1 && h.get('driveState') === 'idle', 'the replay');
+    assert.deepEqual(h.spokenLangs, ['tr-TR']);
   } finally { h.close(); }
 });
