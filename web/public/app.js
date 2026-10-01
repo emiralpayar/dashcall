@@ -361,12 +361,40 @@ function setDrive(s, label) {
   renderState();
 }
 function renderState() { stateEl.textContent = driveLabel.key ? t(driveLabel.key) : driveLabel.text; }
-// Full text / history live in a sheet so the drive screen never grows.
-let sheetKey = null;
-function openSheet(key, html) { sheetKey = key; $('sheet-title').textContent = t(key); $('sheet-body').innerHTML = html; $('sheet').hidden = false; $('sheet-body').scrollTop = 0; }
-$('sheet-close').onclick = () => $('sheet').hidden = true;
-$('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').hidden = true; };
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet').hidden) $('sheet').hidden = true; });
+// Full text / history / a past session live in a sheet so the drive screen never grows. The title is an i18n key,
+// or render() returns [title, html] and runs again on a language switch (for bodies with translated text).
+let sheetKey = null, sheetRender = null, sheetOpener = null;
+function openSheet(key, html, render = null) {
+  sheetKey = key; sheetRender = render;
+  fillSheet(render ? render() : [t(key), html]);
+  if ($('sheet').hidden) sheetOpener = document.activeElement; // focus goes back there on close
+  $('sheet').hidden = false; $('sheet-body').scrollTop = 0;
+  $('sheet-close').focus();
+}
+function fillSheet([title, html]) { $('sheet-title').textContent = title; $('sheet-body').innerHTML = html; }
+function closeSheet() {
+  if ($('sheet').hidden) return;
+  $('sheet').hidden = true; sheetRender = null;
+  let o = sheetOpener; sheetOpener = null;
+  // the session list re-renders every 15 s: if the card that opened the sheet was replaced, focus its successor
+  if (o && !o.isConnected && o.dataset?.sid) o = document.querySelector(`[data-sid="${CSS.escape(o.dataset.sid)}"]`);
+  o?.focus?.();
+}
+$('sheet-close').onclick = closeSheet;
+$('sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
+document.addEventListener('keydown', e => {
+  if ($('sheet').hidden) return;
+  if (e.key === 'Escape') return closeSheet();
+  if (e.key !== 'Tab') return;
+  // aria-modal doesn't stop Tab from wandering into the page behind: wrap around inside the sheet instead
+  const f = [...$('sheet').querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter(x => !x.disabled && x.getClientRects().length);
+  const first = f[0], last = f[f.length - 1], at = document.activeElement;
+  if (!$('sheet').contains(at)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+});
+document.addEventListener('langchange', () => { if (!$('sheet').hidden && sheetRender) fillSheet(sheetRender()); });
 $('showfull').onclick = () => { const h = history[history.length - 1]; if (h) openSheet('sheet.lastReply', `<div class="m me">${esc(h.q)}</div>${esc(plain(h.a))}`); };
 $('showlog').onclick = () => openSheet('sheet.history', history.slice().reverse().map(h => `<div class="m me">${esc(h.q)}</div><div class="m">${esc(plain(h.a))}</div>`).join(''));
 function renderActions() { $('showfull').hidden = !history.length; $('showlog').hidden = history.length < 2; }
@@ -515,7 +543,7 @@ document.querySelectorAll('[data-mic]').forEach(b => {
 let openPane = null, screenTimer = null;
 function card(s, live) {
   const st = live ? s.status : 'past';
-  return `<button class="card${s.muted ? ' muted' : ''}" ${live ? `data-pane="${esc(s.pane)}"` : ''}>
+  return `<button class="card${s.muted ? ' muted' : ''}" ${live ? `data-pane="${esc(s.pane)}"` : `data-sid="${esc(s.sessionId)}"`}>
     <div class="h"><i class="dot ${live ? esc(s.status) : ''}"></i><span class="t">${esc(s.title || base(s.cwd))}</span>
       <span class="badge">${esc(statusLabel(st))} · ${ago(s.lastTs || s.mtime)}</span></div>
     <div class="proj">${esc(base(s.cwd))}</div>
@@ -537,9 +565,18 @@ async function loadSessions() {
     $('muted-wrap').hidden = !muted.length;
     $('mutedlist').innerHTML = muted.map(([s, l]) => card(s, l)).join('');
     document.querySelectorAll('#live [data-pane], #mutedlist [data-pane]').forEach(c => c.onclick = () => openDetail(sessions.find(s => s.pane === c.dataset.pane)));
+    document.querySelectorAll('#recent [data-sid], #mutedlist [data-sid]').forEach(c => c.onclick = () => openPast(past.find(s => s.sessionId === c.dataset.sid)));
   } catch (e) { setConn(false); $('live').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 $('refresh').onclick = loadSessions;
+// A past session has no pane to type into any more, so it opens read-only in the sheet. No whitespace between the
+// tags: the sheet body keeps it (pre-wrap).
+function openPast(s) {
+  if (!s) return;
+  openSheet(null, null, () => [s.title || base(s.cwd), `<p class="sheet-meta">${s.cwd ? esc(s.cwd) + ' <span>· ' : '<span>'}${esc(statusLabel('past'))} · ${ago(s.lastTs || s.mtime)}</span></p>`
+    + (s.lastUser ? `<h3 class="sheet-label">${t('sessions.lastPrompt')}</h3><div class="m me">${esc(s.lastUser)}</div>` : '')
+    + (s.lastAssistant ? `<h3 class="sheet-label">${t('sheet.lastReply')}</h3><div class="m">${esc(s.lastAssistant)}</div>` : '')]);
+}
 
 async function refreshScreen() {
   if (!openPane) return;
@@ -580,11 +617,21 @@ $('d-mute').onclick = async () => {
     renderMute();
   } catch (e) { toast(e.message); }
 };
-$('d-esc').onclick = async () => {
+async function sendKey(key, msg, vars) {
   if (!openPane) return;
-  try { await api(`/sessions/${encodeURIComponent(openPane)}/keys`, { method: 'POST', body: JSON.stringify({ keys: ['esc'] }) }); toast('sessions.escSent'); setTimeout(refreshScreen, 600); }
+  try { await api(`/sessions/${encodeURIComponent(openPane)}/keys`, { method: 'POST', body: JSON.stringify({ keys: [key] }) }); toast(msg, vars); setTimeout(refreshScreen, 600); }
   catch (e) { toast(e.message); }
-};
+}
+$('d-esc').onclick = () => sendKey('esc', 'sessions.escSent');
+// 1/2/3/Enter answer permission and menu prompts. One key at a time, and a short pause after it: a double tap in the
+// car must not also answer the prompt that comes next.
+let keyBusy = false;
+document.querySelectorAll('#d-keys [data-key]').forEach(b => b.onclick = async () => {
+  if (keyBusy) return;
+  keyBusy = true; $('d-keys').classList.add('busy');
+  await Promise.all([sendKey(b.dataset.key, 'sessions.keySent', { key: b.textContent }), sleep(700)]);
+  keyBusy = false; $('d-keys').classList.remove('busy');
+});
 $('composer').onsubmit = async e => {
   e.preventDefault();
   const text = $('d-text').value.trim(); if (!text || !openPane) return;
