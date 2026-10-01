@@ -40,9 +40,10 @@ rest: the title, the last user prompt and the last assistant message.
 1. **Record.** The user taps the talk button. The browser records with `MediaRecorder`. Recording stops after about
    3.5 seconds of silence, at 2 minutes, when the user taps again, or after 12 seconds if no speech is heard at all.
 2. **Transcribe.** `POST /api/stt?lang=en` with the raw audio body. The web app checks the cookie and forwards the
-   request. The agent accepts only WebM, Ogg, MP4 or WAV (it checks magic bytes), converts the audio to 16 kHz mono
-   WAV with ffmpeg, and runs `whisper-cli -l <lang>` with Silero voice activity detection, so only speech reaches
-   whisper. `agent/stt-text.mjs` then drops known silence hallucinations and repeated sentences. Response: `{text}`.
+   request. The agent accepts only WebM, Ogg, MP4 or WAV (it checks magic bytes). Silero voice activity detection
+   (VAD) keeps silence and noise away from whisper, and `agent/stt-text.mjs` drops known silence hallucinations and
+   repeated sentences from what whisper returns. To transcribe, the agent converts the audio to 16 kHz mono
+   WAV with ffmpeg, and runs `whisper-cli -l <lang>`. Response: `{text}`.
 3. **Ask.** `POST /api/ask {text, conversationId, lang, requestId}`. The agent starts a job and immediately returns
    the same view as a poll (step 5), for a new job `{id, status: "running", lang, elapsed}`. `requestId` makes the
    call safe to retry: the same ID returns the job it already started instead of asking twice, with its reply if it

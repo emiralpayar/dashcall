@@ -18,6 +18,7 @@ test('keeps repetition that is not a repeated sentence', () => {
   for (const t of [
     'yavaş yavaş anlat', 'Tamam, tamam.', 'Çok çok iyi.', 'Bir. İki. Bir.', 'Run the tests. Then run the tests again.',
     'Kaç iş çalışıyor? Kaç iş bitti?', 'Say it twice: hello hello.', 'Testleri çalıştır testleri çalıştır',
+    'Sil. Şil.', 'Kır. Kir.', // Turkish letters with and without marks are different letters
   ]) assert.equal(clean(t), t);
 });
 
@@ -41,10 +42,11 @@ test('keeps real commands, including thanks inside a longer request', () => {
 
 test('cuts subtitle credits from the end of a real transcript', () => {
   assert.equal(clean('Kaç iş çalışıyor? Tek cümle ile söyle. Altyazı M.K.'), 'Kaç iş çalışıyor? Tek cümle ile söyle.');
-  assert.equal(clean('Run the tests. Thanks for watching!'), 'Run the tests.');
+  assert.equal(clean('Run the tests. Subtitles by the Amara.org community'), 'Run the tests.');
   assert.equal(clean('Testleri çalıştır. Altyazı M.K. Altyazı M.K.'), 'Testleri çalıştır.');
   assert.equal(clean('Kaç iş çalışıyor? Kaç iş çalışıyor? Altyazı M.K.'), 'Kaç iş çalışıyor?');
-  // only after a finished sentence, and only credits, not a plain "thank you"
+  // only after a finished sentence, and only credits: outros and thanks may be dictated
   assert.equal(clean('Ekrandaki yazı altyazı m.k.'), 'Ekrandaki yazı altyazı m.k.');
-  assert.equal(clean('Push it. Thank you.'), 'Push it. Thank you.');
+  for (const t of ['Push it. Thank you.', 'Run the tests. Thanks for watching!', 'Videonun sonuna ekle. Abone olmayı unutmayın.'])
+    assert.equal(clean(t), t);
 });

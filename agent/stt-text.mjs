@@ -2,26 +2,30 @@
 // "hears" subtitle credits and outros, and it sometimes says the same thing twice. Every rule here is narrow on
 // purpose: a dropped hallucination only costs a "didn't catch that", a dropped command costs the user's trust.
 
-// Comparison key: case, accents, punctuation and spacing don't matter ("Altyazı: M. K." matches "altyazı m.k.").
+// Key for the phrase lists: case, accents, punctuation and spacing don't matter ("Altyazı: M. K." = "altyazı m.k.").
 const key = s => s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/ı/g, 'i').replace(/[^\p{L}\p{N}]/gu, '');
+// Key for repeats: only case and punctuation don't matter. s/ş, c/ç, i/ı... are different Turkish letters, so
+// "Sil. Şil." is not a repeat.
+const word = s => s.normalize('NFC').toLocaleLowerCase('tr').replace(/[^\p{L}\p{N}]/gu, '');
 // A word that ends a sentence: "söyle." "çalışıyor?" "Done!" "…" (closing quotes or brackets allowed).
 const END = /[.!?…]["'”’)\]]*$/;
 
-// Subtitle credits and video outros. Nobody says them to an assistant, so they are also cut from the end of a real
-// transcript: without VAD, whisper appends them when a long silent tail follows the speech.
-const CREDITS = new Set([
-  'Altyazı M.K.', 'Abone olmayı unutmayın.', 'İzlediğiniz için teşekkürler.', 'İzlediğiniz için teşekkür ederim.',
-  'Thanks for watching!', 'Thank you for watching.', 'Subtitles by the Amara.org community',
-].map(key));
-// Also dropped, but only when they are the whole transcript: what whisper most often returns for silence. Not here:
-// one-off garbage such as "Erlendir." (also the tail of "değerlendir", a real verb); VAD keeps silence away instead.
-const SILENCE = new Set([...CREDITS, ...['you', 'Thank you.'].map(key)]);
+// Subtitle credits: nobody says them, so they are also cut from the end of a real transcript (without VAD, whisper
+// appends them when a long silent tail follows the speech).
+const CREDITS = new Set(['Altyazı M.K.', 'Subtitles by the Amara.org community'].map(key));
+// Video outros and thanks: what whisper most often returns for silence, but they are real words someone may dictate,
+// so they are dropped only when they are the whole transcript. Not here: one-off garbage such as "Erlendir." (also the
+// tail of "değerlendir", a real verb); VAD keeps silence away instead.
+const SILENCE = new Set([...CREDITS, ...[
+  'Abone olmayı unutmayın.', 'İzlediğiniz için teşekkürler.', 'İzlediğiniz için teşekkür ederim.',
+  'Thanks for watching!', 'Thank you for watching.', 'Thank you.', 'you',
+].map(key)]);
 
 // Removes a block of whole sentences that directly repeats the block before it, until none is left:
 // "A? B. A? B." → "A? B.", "A. A. A." → "A.", "X. A. A." → "X. A.". Only sentence-sized blocks count, so
 // "yavaş yavaş" and "tamam, tamam" stay as spoken.
 function collapseRepeats(words) {
-  const k = words.map(key);
+  const k = words.map(word);
   const startsSentence = i => i === 0 || END.test(words[i - 1]);
   for (let i = 0; i < words.length; i++) {
     if (!startsSentence(i)) continue;

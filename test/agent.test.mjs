@@ -7,7 +7,7 @@ import path from 'node:path';
 import { startServer, tempDir } from './helpers.mjs';
 
 const TOKEN = 't'.repeat(40);
-let agent, base, dir, logs = '', vadModel;
+let agent, base, dir, logs = '';
 
 // Tiny shell scripts standing in for the real tools.
 function fakeBin(dir, name, body) {
@@ -18,10 +18,7 @@ function fakeBin(dir, name, body) {
 
 before(async () => {
   dir = tempDir();
-  vadModel = path.join(dir, 'vad.bin');
-  writeFileSync(vadModel, '');
   agent = await startServer('agent/server.mjs', {
-    DASHCALL_WHISPER_VAD_MODEL: vadModel,
     DASHCALL_TOKEN: TOKEN, DASHCALL_PORT: '0', DASHCALL_BIND: '127.0.0.1', DASHCALL_DEFAULT_LANGUAGE: 'en',
     DASHCALL_STATE_DIR: path.join(dir, 'state'), DASHCALL_BRAIN_FILE: path.join(dir, 'brain.json'), DASHCALL_HERDR_BIN: '/nonexistent/herdr',
     FAKE_DIR: dir, // the fake claude logs every prompt to calls.txt
@@ -112,12 +109,6 @@ test('speech-to-text passes the requested language to whisper, defaulting when i
   assert.match(await stt(''), /-l en /);
 });
 
-test('speech-to-text runs whisper with VAD, without non-speech tokens and without carried-over text', async () => {
-  const args = await stt('?lang=tr');
-  assert.match(args, / -sns -mc 0 /);
-  assert.ok(args.includes(`--vad -vm ${vadModel} -vt 0.5 `), args);
-});
-
 // Another agent with its own fake whisper; its log is collected in `.log`.
 async function sttAgent(t, whisper, env = {}) {
   const dir = tempDir();
@@ -134,6 +125,15 @@ async function sttAgent(t, whisper, env = {}) {
   return p;
 }
 
+test('speech-to-text runs whisper with VAD, without non-speech tokens and without carried-over text', async t => {
+  const vad = path.join(tempDir(), 'vad.bin');
+  writeFileSync(vad, '');
+  const a = await sttAgent(t, 'echo "args: $*"', { DASHCALL_WHISPER_VAD_MODEL: vad });
+  const args = (await (await sttAt(a.port, '?lang=tr')).json()).text;
+  assert.match(args, / -sns -mc 0 /);
+  assert.ok(args.includes(`--vad -vm ${vad} -vt 0.5 `), args);
+});
+
 test('without the VAD model file, speech-to-text still works, warns once and cleans the transcript', async t => {
   const a = await sttAgent(t, `case "$*" in
     *--vad*) echo "VAD ON";;
@@ -148,8 +148,8 @@ test('without the VAD model file, speech-to-text still works, warns once and cle
   assert.ok(!log.includes('Kaç'), 'transcripts stay out of the log unless DASHCALL_LOG_CONTENT=1');
 });
 
-test('DASHCALL_WHISPER_VAD_MODEL=off turns VAD off without a warning', async t => {
-  const a = await sttAgent(t, 'echo "args: $*"', { DASHCALL_WHISPER_VAD_MODEL: 'off' });
+test('DASHCALL_WHISPER_VAD_MODEL=off (any case) turns VAD off without a warning', async t => {
+  const a = await sttAgent(t, 'echo "args: $*"', { DASHCALL_WHISPER_VAD_MODEL: 'OFF' });
   const args = (await (await sttAt(a.port, '?lang=tr')).json()).text;
   assert.match(args, /-sns/);
   assert.doesNotMatch(args, /--vad/);
@@ -158,10 +158,10 @@ test('DASHCALL_WHISPER_VAD_MODEL=off turns VAD off without a warning', async t =
 
 test('a whisper-cli too old for the flags is an error, not silence', async t => {
   // old whisper-cli prints its usage and exits 0 on an unknown flag
-  const a = await sttAgent(t, 'echo "error: unknown argument: --vad" >&2; exit 0', { DASHCALL_WHISPER_VAD_MODEL: vadModel });
+  const a = await sttAgent(t, 'echo "error: unknown argument: -sns" >&2; exit 0', { DASHCALL_WHISPER_VAD_MODEL: 'off' });
   const r = await sttAt(a.port, '?lang=tr');
   await assertError(r.clone(), 500, 'internal');
-  assert.match((await r.json()).error, /does not support --vad.*brew upgrade whisper-cpp/);
+  assert.match((await r.json()).error, /does not support -sns.*brew upgrade whisper-cpp/);
 });
 
 test('speak picks a voice of the requested language', async () => {
