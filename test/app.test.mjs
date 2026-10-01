@@ -237,7 +237,7 @@ test("an agent's friendly error is spoken as is, in the question's language; oth
   const friendly = '[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.';
   let h = boot({ routes: {
     'POST /ask': () => ({ id: 'j', status: 'running' }),
-    'GET /ask/j': () => ({ id: 'j', status: 'error', lang: 'tr', error: friendly, detail: "You've hit your session limit · resets 2pm" }),
+    'GET /ask/j': () => ({ id: 'j', status: 'error', lang: 'tr', error: friendly, detail: "You've hit your session limit · resets 2pm", notificationId: 'n-err' }),
   } });
   try {
     h.get("setLang('tr')");
@@ -246,6 +246,8 @@ test("an agent's friendly error is spoken as is, in the question's language; oth
     await h.until(() => h.spoken.length, 'the error');
     assert.deepEqual(h.spoken, ['klod kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.']);
     assert.deepEqual(h.spokenLangs, ['tr-TR']);
+    // heard here, so its notification is read: it must not pop up again when the app is next opened
+    assert.deepEqual(h.calls('POST /notifications/read').map(c => c.body.ids), [['n-err']]);
   } finally { h.close(); }
 
   h = boot({ routes: { 'POST /ask': () => ({ id: 'j', status: 'running' }), 'GET /ask/j': () => ({ id: 'j', status: 'error', error: 'exit 1' }) } });

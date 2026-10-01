@@ -352,6 +352,8 @@ async function ask(text) {
       }
     }
     // With `detail` (Claude's own words), `error` is a sentence in the question's language, ready to be spoken as is.
+    // Spoken right here, like a reply: its notification must not pop up again as unread next time the app opens.
+    if (j.status === 'error' && j.notificationId) markRead([j.notificationId]);
     if (j.status === 'error') throw Object.assign(new Error(j.error || t('errors.generic')), { ready: !!(j.error && j.detail) });
     conversationId = j.conversationId; store.set('conversationId', conversationId);
     const reply = j.reply || t('drive.emptyReply');
