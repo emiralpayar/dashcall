@@ -70,7 +70,7 @@ test('norm compares words by letters and digits, lowercased in the UI language',
   assert.equal(S.norm('IŞIK', 'tr'), 'ışık');
   assert.equal(S.norm('IŞIK', 'en'), 'işik');
   // with i18n.js loaded first (as on the page), the default is the UI language
-  const page = (lang) => load({
+  const page = lang => load({
     document: { addEventListener() {}, dispatchEvent() {}, documentElement: {}, querySelectorAll: () => [] },
     localStorage: { getItem: k => (k === 'lang' ? lang : null), setItem() {} }, navigator: { language: 'en-US' },
     CustomEvent: class {}, Event: class {},
@@ -148,6 +148,16 @@ test('a word the voice splits in parts is consumed whole', () => {
   // only 4 timed words are looked ahead: without consuming y…v, "Next." would get a proportional estimate (7.6)
   const words = ['Open', 'x', 'y', 'z', 'w', 'v'].map((w, i) => ({ w, t: i / 10 })).concat({ w: 'Next', t: 1.5 });
   assert.deepEqual(starts('Open x/y/z/w/v. Next.', words, 10), [0, 1.5]);
+  // …but only the parts of that word: a later "posta" is a word of its own
+  assert.deepEqual(starts('E-posta. Posta.', [{ w: 'E', t: 0 }, { w: 'posta', t: 0.3 }, { w: 'Posta', t: 1 }], 2), [0, 1]);
+});
+
+test('a word that contains the next one does not swallow it', () => {
+  // "this" contains "is", "what" contains "a": the next words keep their own times
+  const said = 'Hello there. This is a test. Done.';
+  assert.deepEqual(starts(said, timed(said), 99), [0, 0.5, 1.5]);
+  const words = [{ w: 'What', t: 0 }, { w: 'a', t: 0.3 }, { w: 'day', t: 0.5 }, { w: 'Bye', t: 1 }];
+  assert.deepEqual(starts('What a day. Bye.', words, 30), [0, 1]);
 });
 
 test('the matching locale is the fourth argument', () => {

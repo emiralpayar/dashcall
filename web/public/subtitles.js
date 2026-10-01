@@ -41,7 +41,10 @@ function buildChunks(raw, words, duration, lang = subtitleLang()) {
       const w = norm(words[k].w, lang);
       if (w && (n === w || n.startsWith(w) || w.startsWith(n))) {
         times[i] = words[k].t; j = k + 1;
-        while (j < words.length && norm(words[j].w, lang) && n.includes(norm(words[j].w, lang)) && !n.startsWith(norm(words[j].w, lang))) j++;
+        // the voice may split a word ("e-posta" → "e", "posta"): skip its remaining parts, in order, and no further
+        // ("this" contains "is", but the next "is" is a word of its own)
+        let rest = n.startsWith(w) ? n.slice(w.length) : '', v;
+        while (rest && j < words.length && (v = norm(words[j].w, lang)) && rest.startsWith(v)) { rest = rest.slice(v.length); j++; }
         break;
       }
     }
