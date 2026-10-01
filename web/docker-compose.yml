@@ -10,3 +10,11 @@ services:
     # If your proxy runs in Docker, you can instead drop `ports` and join its network.
     ports:
       - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
+    # `docker compose ps` shows (healthy) or (unhealthy). busybox wget ships with the alpine image. `$$` leaves the
+    # PORT lookup to the container's shell, so it checks the port the server actually reads from .env.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null http://127.0.0.1:$${PORT:-8080}/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

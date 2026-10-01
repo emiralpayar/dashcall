@@ -282,11 +282,17 @@ Start it:
 docker compose up -d --build
 docker compose logs -f     # expect: dashcall web on 0.0.0.0:8080 (inside the container)
 curl http://127.0.0.1:8080/healthz    # ok
+docker compose ps          # STATUS: Up … (healthy)
 ```
 
 The container is only published on `127.0.0.1:8080`, so it isn't reachable from outside until you add HTTPS. To use
 another port, set `PORT` in `web/.env`: `docker-compose.yml` reads it and publishes that port on `127.0.0.1` instead.
 Use the same port in the reverse proxy below.
+
+Docker also checks `/healthz` from inside the container every 30 seconds, on the same `PORT` (the `healthcheck` in
+`docker-compose.yml`). After three failed checks in a row, `docker compose ps` shows `(unhealthy)`. Docker only reports
+the status and doesn't restart the container (`restart: unless-stopped` covers crashes), so if it stays unhealthy,
+read `docker compose logs` and run `docker compose restart`.
 
 **Without Docker:** install Node 22 and run `npm run web` from the repo root. It reads `web/.env` and, like the
 container, is only reachable from the same machine: it listens on `127.0.0.1` unless you set `HOST`. Keep
@@ -352,6 +358,7 @@ Using another proxy, such as nginx or Traefik? Make sure it:
 | Wrong token is rejected | The same command with a different token | `401`, `{"error":"unauthorized","code":"unauthorized"}` |
 | herdr is visible | `curl -H "Authorization: Bearer <token>" http://<mac-ip>:7420/api/sessions` | Your sessions |
 | Web app is up | `curl https://dashcall.example.com/healthz` | `ok` |
+| Container is healthy | `docker compose ps` in `web/` on the server | `(healthy)` in `STATUS` |
 | API needs login | `curl -i https://dashcall.example.com/api/health` | `401`, code `login_required` |
 | Two-factor login (if set up) | `curl https://dashcall.example.com/login/config` | `{"totp":true}`, and the login page asks for a code |
 | Server and Mac tokens match | Log in and look at the dot next to the logo | Green. "The Mac rejected the server's token" (`502 agent_auth`) means `DASHCALL_AGENT_TOKEN` differs from `DASHCALL_TOKEN` |
