@@ -104,8 +104,12 @@ rest: the title, the last user prompt and the last assistant message.
    playing time to arrive. All segments play one after another on the same `Audio` element, the one a tap unlocked,
    because a new element could be blocked by autoplay rules in car and iOS browsers. Each segment gets subtitles
    from its own word timings. The talk button shows *speaking* from the first segment to the end of the last.
-   Stopping (a tap, a new answer) cancels playback and any segment requests still in flight. If a later segment
-   fails, the browser voice reads the rest of the reply from that segment on.
+   Stopping (a tap, a new answer) cancels playback and the segment requests still waiting for an answer; a response
+   that has already started arriving finishes downloading but is never played. If a later segment fails, the browser
+   voice reads the rest of the reply from that segment on. Each segment is synthesized on its own, so if edge-tts
+   fails for just one segment, the agent's `say` fallback reads that segment and the voice changes for it. The agent
+   cuts every request at 4000 characters, which used to bound the whole reply, so the app keeps that bound itself: a
+   longer reply stops at the end of the segment that crosses 4000 characters.
    Measured on the Mac for a 584-character Turkish reply (edge-tts, median of 15 runs spaced like real use): the
    whole text took 1.1 s and its first sentence 0.7 s. Both responses then still have to be downloaded: 322 KB
    against 29 KB, which over a 2 Mbps link is another 1.2 s before the whole reply can start.

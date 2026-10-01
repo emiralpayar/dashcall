@@ -135,6 +135,11 @@ test('speechSegments: never cuts inside [[written|spoken]] markup', () => {
   }
 });
 
+test('speechSegments: the speech code parses in older car and iOS browsers', () => {
+  // the SPA otherwise needs no more than optional chaining and `??` (Chrome 80, Safari 13.1)
+  assert.doesNotMatch(block.replace(/\/\/.*$/gm, ''), /\?\?=|\|\|=|&&=|\.at\(/);
+});
+
 test('speak: a short reply is one request, played once, as before', async () => {
   const t = load();
   assert.equal(await t.say('Your [[PR|pi ar]] is merged.', 'en'), true);
@@ -171,6 +176,18 @@ test('speak: segments play in order on the one player, one request ahead, each w
   assert.deepEqual(chunks.slice(0, 3).map(c => c[2][0].w), ['a', 'b', 'c'], 'each segment uses its own word timings');
   assert.ok(t.log.filter(l => l[0] === 'subs').every(s => s[2] === 0), 'the subtitle clock restarts for every segment');
   assert.equal(t.urls.revoked.length, segs.length - 1, 'every replaced object URL is revoked');
+});
+
+test('speak: a very long reply stops at the segment that crosses 4000 characters, like the agent\'s cap did', async () => {
+  const HUGE = Array.from({ length: 150 }, (_, i) => sentence(i)).join(' '); // ~9700 characters
+  assert.equal(squash(segmentsOf(HUGE).join(' ')), squash(HUGE), 'speechSegments alone has no limit');
+  const t = load();
+  assert.equal(await t.say(HUGE), true);
+  const said = t.calls.map(c => c.text).join(' ');
+  assert.ok(HUGE.startsWith(said), 'a prefix, in order');
+  assert.ok(said.length >= 4000 && said.length <= 4600, said.length);
+  assert.ok(t.calls.every(c => c.text.length <= 600));
+  assert.equal(t.plays(), t.calls.length);
 });
 
 test('speak: stopSpeaking() during playback cancels the prefetch and returns false', async () => {

@@ -123,9 +123,13 @@ async function silentSubtitles(text, gen) {
 // plays. The first segment is the first sentence (≥ 40 characters, or cut at a clause if it runs past 160); the
 // second is at most 400 characters, as it has only the first one's playing time to arrive; later ones up to 600,
 // to keep requests and seams few. Cuts fall at a sentence end, else a clause, else a space, never inside
-// [[written|spoken]] markup. Up to 200 characters stays one request: splitting would gain nothing.
+// [[written|spoken]] markup. Up to 200 characters stays one request: splitting would gain nothing. With `max`, no
+// segment starts at or after that many characters.
 const SEG_MIN = [40, 200, 200], SEG_MAX = [160, 400, 600]; // segment 1, segment 2, every later one
-function speechSegments(raw) {
+// The agent cuts every /api/speak text at 4000 characters. That used to bound a whole reply; with one request per
+// segment it no longer would, so the app keeps the bound itself (ending at a segment boundary, not mid-word).
+const SPEAK_MAX = 4000;
+function speechSegments(raw, max = Infinity) {
   const text = String(raw ?? '').trim();
   if (text.length <= 200) return text ? [text] : [];
   const marks = [...text.matchAll(/\[\[[^\]|]+\|[^\]]+\]\]/g)].map(m => [m.index, m.index + m[0].length]);
@@ -138,7 +142,7 @@ function speechSegments(raw) {
     cuts(/\S(?=\s)/g),
   ];
   const segs = [];
-  for (let s = 0; s < text.length;) {
+  for (let s = 0; s < text.length && s < max;) {
     const k = Math.min(segs.length, 2), first = !k, lo = s + SEG_MIN[k], hi = s + SEG_MAX[k];
     let e = text.length;
     if (e > hi) {
@@ -147,7 +151,8 @@ function speechSegments(raw) {
         const c = l.filter(p => p >= lo && p <= hi);
         if (c.length) { e = c[first && l === levels[0] ? 0 : c.length - 1]; break; }
       }
-      e ??= marks.find(([a, b]) => hi > a && hi < b)?.[1] ?? hi; // not a single space: hard cut, after any markup
+      // not a single space: hard cut, after any markup (no `??=`: older car and iOS browsers can't parse it)
+      if (e == null) e = marks.find(([a, b]) => hi > a && hi < b)?.[1] ?? hi;
     }
     segs.push(text.slice(s, e).trim()); s = e;
   }
@@ -158,7 +163,7 @@ function speechSegments(raw) {
 async function speak(text, onState, lang = getLang()) {
   if (!text) return true;
   stopSpeaking();
-  const gen = speakGen, ctl = speakAbort = new AbortController(), v = voiceFor(lang), segs = speechSegments(text);
+  const gen = speakGen, ctl = speakAbort = new AbortController(), v = voiceFor(lang), segs = speechSegments(text, SPEAK_MAX);
   // Settles to {d} or {e}, never rejects: a prefetch nobody awaits any more (speech stopped) must not throw.
   const reqs = [];
   const request = i => i < segs.length && (reqs[i] || (reqs[i] = api('/speak', {
@@ -173,6 +178,7 @@ async function speak(text, onState, lang = getLang()) {
     request(0); request(1);
     for (; i < segs.length; i++) {
       const { d, e } = await request(i);
+      reqs[i] = null; // consumed (never requested again): don't keep its audio until the whole reply is over
       if (gen !== speakGen) return false;
       if (e) throw e;
       if (d?.engine === 'silent') { silent = true; throw new Error('silent'); }
@@ -184,7 +190,7 @@ async function speak(text, onState, lang = getLang()) {
     }
     ctl.abort(); // nothing left to fetch, or a prefetch after an outside pause
   } catch {
-    ctl.abort(); // the browser speaks the rest: don't wait for, or download, the remaining segments
+    ctl.abort(); // the browser speaks the rest: cancel the segment requests not answered yet
     if (gen !== speakGen) return false;
     const rest = i ? segs.slice(i).join(' ') : text; // a segment that fails mid-reply hands over from that segment on
     if (silent) await silentSubtitles(rest, gen);
