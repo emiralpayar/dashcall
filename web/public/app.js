@@ -109,47 +109,97 @@ function runSubtitles(chunks, clock) {
 function stopSubtitles() { cancelAnimationFrame(subRaf); subShown = -1; }
 
 let speakGen = 0; // bumped by stopSpeaking(): a speak() still waiting for audio must not start playing afterwards
+let speakAbort = null; // aborts the segment requests of the current speak()
 let playerUrl = null;
 // Silent mode (demo/development, announced by the agent): subtitles run on a timer and nothing makes a sound.
 let silent = false;
-async function silentSubtitles(text, gen) {
+async function silentSubtitles(text, gen, lang) {
   const dur = Math.max(2, spoken(text).length / 14), t0 = performance.now();
-  runSubtitles(buildChunks(text, null, dur), () => (performance.now() - t0) / 1000);
+  runSubtitles(buildChunks(text, null, dur, lang), () => (performance.now() - t0) / 1000);
   while (gen === speakGen && performance.now() - t0 < dur * 1000) await sleep(100);
+}
+// Long replies are synthesized in segments so the first sentence plays while the rest is still being made: the
+// whole reply's audio (~300 KB of base64 for 600 characters) would otherwise have to reach the car before anything
+// plays. The first segment is the first sentence (≥ 40 characters, or cut at a clause if it runs past 160); the
+// second is at most 400 characters, as it has only the first one's playing time to arrive; later ones up to 600,
+// to keep requests and seams few. Cuts fall at a sentence end, else a clause, else a space, never inside
+// [[written|spoken]] markup. Up to 200 characters stays one request: splitting would gain nothing. With `max`, no
+// segment starts at or after that many characters.
+const SEG_MIN = [40, 200, 200], SEG_MAX = [160, 400, 600]; // segment 1, segment 2, every later one
+// The agent cuts every /api/speak text at 4000 characters. That used to bound a whole reply; with one request per
+// segment it no longer would, so the app keeps the bound itself (ending at a segment boundary, not mid-word).
+const SPEAK_MAX = 4000;
+function speechSegments(raw, max = Infinity) {
+  const text = String(raw ?? '').trim();
+  if (text.length <= 200) return text ? [text] : [];
+  const marks = [...text.matchAll(/\[\[[^\]|]+\|[^\]]+\]\]/g)].map(m => [m.index, m.index + m[0].length]);
+  const cuts = (re, ok = () => true) => [...text.matchAll(re)].filter(ok).map(m => m.index + m[0].length)
+    .filter(p => !marks.some(([a, b]) => p > a && p < b));
+  const levels = [
+    // a sentence ends before a capital (or a line break), but "3. madde" / "2. Ahmet" is a number, not an end
+    cuts(/[.!?…]+["'”’)\]]*(?=\s+[^\s\p{Ll}])|\n/gu, m => !(m[0][0] === '.' && /\d/.test(text[m.index - 1] || ''))),
+    cuts(/[,;:—–]["'”’)\]]*(?=\s)/g),
+    cuts(/\S(?=\s)/g),
+  ];
+  const segs = [];
+  for (let s = 0; s < text.length && s < max;) {
+    const k = Math.min(segs.length, 2), first = !k, lo = s + SEG_MIN[k], hi = s + SEG_MAX[k];
+    let e = text.length;
+    if (e > hi) {
+      e = null;
+      for (const l of levels) {
+        const c = l.filter(p => p >= lo && p <= hi);
+        if (c.length) { e = c[first && l === levels[0] ? 0 : c.length - 1]; break; }
+      }
+      // not a single space: hard cut, after any markup (no `??=`: older car and iOS browsers can't parse it)
+      if (e == null) e = marks.find(([a, b]) => hi > a && hi < b)?.[1] ?? hi;
+    }
+    segs.push(text.slice(s, e).trim()); s = e;
+  }
+  return segs.filter(Boolean);
 }
 // Reads text aloud with synced subtitles. Returns false if it was stopped or superseded, in which case whoever
 // took over owns the UI state and the caller must not reset it.
 async function speak(text, onState, lang = getLang()) {
   if (!text) return true;
   stopSpeaking();
-  const gen = speakGen;
+  const gen = speakGen, ctl = speakAbort = new AbortController(), v = voiceFor(lang), segs = speechSegments(text, SPEAK_MAX);
+  // Settles to {d} or {e}, never rejects: a prefetch nobody awaits any more (speech stopped) must not throw.
+  const reqs = [];
+  const request = i => i < segs.length && (reqs[i] || (reqs[i] = api('/speak', {
+    method: 'POST', body: JSON.stringify({ text: spoken(segs[i]), voice: v, lang }), timeout: 30000, signal: ctl.signal,
+  }).then(d => ({ d }), e => ({ e }))));
   onState?.('speaking');
+  let i = 0;
   try {
     if (silent) throw new Error('silent');
-    const d = await api('/speak', { method: 'POST', body: JSON.stringify({ text: spoken(text), voice: voiceFor(lang), lang }), timeout: 30000 });
-    if (gen !== speakGen) return false;
-    if (d?.engine === 'silent') { silent = true; throw new Error('silent'); }
-    if (!d?.audio) throw new Error('no audio'); // no neural voice available: use the browser's
-    const bytes = Uint8Array.from(atob(d.audio), c => c.charCodeAt(0));
-    if (playerUrl) URL.revokeObjectURL(playerUrl);
-    player.src = playerUrl = URL.createObjectURL(new Blob([bytes], { type: d.mime || 'audio/mpeg' }));
-    await new Promise(res => { player.onloadedmetadata = res; player.onerror = res; setTimeout(res, 1500); });
-    if (gen !== speakGen) return false;
-    const chunks = buildChunks(text, d.words, isFinite(player.duration) ? player.duration : 0);
-    const ended = new Promise(res => { player.onended = res; player.onpause = res; });
-    await player.play();
-    runSubtitles(chunks, () => player.currentTime);
-    await ended;
-    if (gen !== speakGen) return false;
+    // Segment 2 is requested right away too: segment 1 is short, and an edge-tts request takes ~0.7-1.1 s whatever
+    // its length, so segment 2 needs the head start to arrive before segment 1 has finished playing.
+    request(0); request(1);
+    for (; i < segs.length; i++) {
+      const { d, e } = await request(i);
+      reqs[i] = null; // consumed (never requested again): don't keep its audio until the whole reply is over
+      if (gen !== speakGen) return false;
+      if (e) throw e;
+      if (d?.engine === 'silent') { silent = true; throw new Error('silent'); }
+      if (!d?.audio) throw new Error('no audio'); // no neural voice available: use the browser's
+      request(i + 1); // one segment ahead: synthesized while this one plays
+      const ended = await playSegment(segs[i], d, gen, lang);
+      if (gen !== speakGen) return false;
+      if (!ended) break; // paused from outside (another app took the audio): stop, as a single reply would
+    }
+    ctl.abort(); // nothing left to fetch, or a prefetch after an outside pause
   } catch {
+    ctl.abort(); // the browser speaks the rest: cancel the segment requests not answered yet
     if (gen !== speakGen) return false;
-    if (silent) await silentSubtitles(text, gen);
+    const rest = i ? segs.slice(i).join(' ') : text; // a segment that fails mid-reply hands over from that segment on
+    if (silent) await silentSubtitles(rest, gen, lang);
     // fallback: browser TTS, subtitles paced by elapsed time
     else if ('speechSynthesis' in window) {
-      const chunks = buildChunks(text, null, 0), t0 = performance.now();
+      const chunks = buildChunks(rest, null, 0, lang), t0 = performance.now();
       runSubtitles(chunks, () => (performance.now() - t0) / 1000);
       await new Promise(res => {
-        const u = new SpeechSynthesisUtterance(spoken(text)); u.lang = LOCALES[lang] || speechLang(); u.onend = res; u.onerror = res;
+        const u = new SpeechSynthesisUtterance(spoken(rest)); u.lang = LOCALES[lang] || speechLang(); u.onend = res; u.onerror = res;
         speechSynthesis.speak(u);
       });
     }
@@ -159,8 +209,33 @@ async function speak(text, onState, lang = getLang()) {
   onState?.('idle');
   return true;
 }
+// Plays one segment on the shared player, which a tap unlocked (a new Audio element could be blocked by autoplay
+// rules in car and iOS browsers), with subtitles on that segment's own clock. True if it played to the end, false
+// if it was paused before; throws if it can't play, so the browser voice takes over from this segment.
+async function playSegment(raw, d, gen, lang) {
+  const bytes = Uint8Array.from(atob(d.audio), c => c.charCodeAt(0));
+  if (playerUrl) URL.revokeObjectURL(playerUrl);
+  player.src = playerUrl = URL.createObjectURL(new Blob([bytes], { type: d.mime || 'audio/mpeg' }));
+  await new Promise(res => { player.onloadedmetadata = res; player.onerror = res; setTimeout(res, 1500); });
+  if (gen !== speakGen) return false;
+  const chunks = buildChunks(raw, d.words, isFinite(player.duration) ? player.duration : 0, lang);
+  // At the end 'pause' fires just before 'ended' (same task): only a pause that 'ended' doesn't follow counts.
+  const end = new Promise(res => {
+    player.onended = () => res('ended'); player.onerror = () => res('error');
+    player.onpause = () => setTimeout(() => res(player.ended ? 'ended' : 'paused'));
+  });
+  await player.play();
+  if (gen !== speakGen) return false;
+  runSubtitles(chunks, () => player.currentTime);
+  const how = await end;
+  if (gen !== speakGen) return false; // stopped: the subtitles belong to whoever took over
+  stopSubtitles(); // the next segment's clock restarts at 0: don't flash this one's first line while it loads
+  if (how === 'error') throw new Error('playback failed');
+  return how === 'ended';
+}
 function stopSpeaking() {
   speakGen++;
+  speakAbort?.abort(); speakAbort = null;
   stopSubtitles();
   try { player.pause(); } catch {}
   try { speechSynthesis.cancel(); } catch {}

@@ -42,6 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   workspace root can now be used for a new session.
 - **Every device has to log in once after updating:** session cookies issued by 0.1.0 are no longer accepted. Rebuild
   the web image (`docker compose up -d --build`), because it now also contains `web/totp.mjs`.
+- **Long replies start talking sooner:** a reply of more than 200 characters is synthesized in segments, so the first
+  sentence can play while the rest is still being synthesized, instead of only after the whole reply's audio has
+  arrived. If edge-tts fails for one segment, the agent reads that segment with macOS `say`; if a segment's request
+  fails, the browser's own voice reads the rest. A reply is still read for at most about 4000 characters.
 
 ### Security
 

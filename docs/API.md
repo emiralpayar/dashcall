@@ -206,6 +206,11 @@ like `+10%` or `-5%`; anything else means `+0%`.
 `words` are word boundaries in seconds (`t` start, `d` duration). If edge-tts fails, the response has
 `"engine": "local"`, no `voice` and an empty `words` array.
 
+The app sends a reply of more than 200 characters as several requests, one per segment of at most about 600
+characters, so the first sentence can play while the rest is synthesized (see [Architecture](ARCHITECTURE.md), step
+7). The 4000-character cut therefore applies per segment; the app itself stops a reply at the end of the segment that
+crosses 4000 characters.
+
 The mock agent (`npm run demo`) is silent: it returns `{"engine": "silent", "mime": null, "audio": null, "words": []}`.
 On `engine: "silent"` (or `silent: true` from `/api/health`) the app shows the subtitles on a timer and plays nothing:
 no neural audio, no browser speech, no notification chime. With `DASHCALL_DEMO_SOUND=1` the mock returns `501
