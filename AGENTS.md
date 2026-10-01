@@ -17,10 +17,12 @@ for the design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ```
 agent/                 Mac-side HTTP API (Node, no deps)
   server.mjs           routes, dispatcher jobs, speech, background-task watcher
+  dispatch.mjs         dispatcher command line, per-conversation queue, friendly limit/login errors
   config.mjs           ALL agent settings (DASHCALL_* env vars), read once at import
   lib.mjs              herdr control, transcript reading, starting sessions
   brain.mjs            memory / notes / mutes (dispatcher/brain/brain.json)
   store.mjs            notifications + watches (state/*.json)
+  jsonfile.mjs         locked, atomic JSON state files (never overwrites an unreadable one)
   prompts.mjs          dispatcher system prompt + background-summary prompt
   lang.mjs             languages, locales, voices, pickLang / pickVoice
   stt-text.mjs         cleans whisper transcripts (silence hallucinations, repeats)
@@ -30,9 +32,10 @@ dispatcher/CLAUDE.md   runtime prompt of the dispatcher (see above)
 web/                   login + static SPA + /api proxy (Node, no deps, Docker)
   server.mjs           settings at the top of the file, then everything else
   totp.mjs             one-time codes (RFC 6238) for the optional two-factor login
-  public/              the SPA: index.html, app.js, login.html, login.js, i18n.js, style.css
+  public/              the SPA: index.html, app.js, subtitles.js, login.html, login.js, i18n.js, style.css,
+                       manifest.webmanifest + icons
 tts/speak.py           edge-tts wrapper (MP3 + word timings)
-scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh
+scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh, totp-secret.mjs
 test/                  node:test suites (no herdr, Claude or network needed)
 docs/                  user documentation, example configs
 ```
@@ -41,7 +44,7 @@ docs/                  user documentation, example configs
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs every test (57) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
+| `npm test` | Runs every test (176) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
 | `node --test test/web.test.mjs` | Runs a single test file. |
 | `npm run check` | Syntax-checks every JavaScript file (`node --check`), including `agent/bin/dashcall`. |
 | `npm run demo` | Web app + mock agent at <http://localhost:8080>, password `demo`. Silent: subtitles only, no audio. Use it for all UI work. |
