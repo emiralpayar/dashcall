@@ -174,12 +174,13 @@ class Recorder {
   async start(onLevel) {
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(m => MediaRecorder.isTypeSupported?.(m)) || '';
-    try { this.rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined); }
-    catch (e) { this.stream.getTracks().forEach(t => t.stop()); throw e; }
-    this.chunks = [];
-    this.rec.ondataavailable = e => e.data.size && this.chunks.push(e.data);
-    this.done = new Promise(res => this.rec.onstop = () => res(new Blob(this.chunks, { type: this.rec.mimeType || 'audio/webm' })));
-    this.rec.start(250);
+    try {
+      this.rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
+      this.chunks = [];
+      this.rec.ondataavailable = e => e.data.size && this.chunks.push(e.data);
+      this.done = new Promise(res => this.rec.onstop = () => res(new Blob(this.chunks, { type: this.rec.mimeType || 'audio/webm' })));
+      this.rec.start(250);
+    } catch (e) { this.stream.getTracks().forEach(t => t.stop()); throw e; } // don't leave the mic (and its indicator) on
     this.active = true;
     // Hard cap on a timer too: animation frames (used below) stop in background tabs.
     this.cap = setTimeout(() => this.stop(), 120000);
@@ -228,40 +229,44 @@ function webSpeechListen() {
 }
 
 let activeListen = null;
-// Upload a recording for transcription, retrying once. On failure the recording is kept for the resend button.
+// Upload a recording for transcription, retrying once. Only drive mode (`drive`) keeps a failed recording for the
+// Resend button and lets the talk button cancel it: a failed dictation must not turn into a drive-mode question.
+// A dictation's upload is cancelled from its own (lit) mic button instead, through dictCtl.
 let pendingAudio = null;
-async function transcribe(blob) {
-  pendingAudio = blob; renderResend();
+async function transcribe(blob, drive = false) {
+  if (drive) { pendingAudio = blob; renderResend(); }
   let lastErr;
   // Long recordings (up to 2 min) take a while to transcribe; stay under the web proxy's 120s limit.
   const timeout = Math.min(110000, 30000 + blob.size / 10);
   for (let attempt = 0; attempt < 2; attempt++) {
-    inflight = new AbortController();
+    const ctl = new AbortController();
+    if (drive) inflight = ctl; else dictCtl = ctl;
     try {
-      const d = await api('/stt?lang=' + getLang(), { method: 'POST', headers: { 'content-type': blob.type || 'audio/webm' }, body: blob, timeout, signal: inflight.signal });
-      pendingAudio = null; renderResend();
+      const d = await api('/stt?lang=' + getLang(), { method: 'POST', headers: { 'content-type': blob.type || 'audio/webm' }, body: blob, timeout, signal: ctl.signal });
+      if (drive) { pendingAudio = null; renderResend(); }
       return d.text || '';
     } catch (e) {
       lastErr = e;
       // a timed-out request may still be running on the server: retrying would transcribe twice
-      if (inflight.signal.aborted || e.timedOut) break;
+      if (ctl.signal.aborted || e.timedOut) break;
       await sleep(1500);
-    } finally { inflight = null; }
+      if (ctl.signal.aborted) { lastErr = cancelled(); break; } // cancelled during the pause before the retry
+    } finally { if (inflight === ctl) inflight = null; if (dictCtl === ctl) dictCtl = null; }
   }
-  renderResend();
   throw Object.assign(new Error(t('drive.sttFailed', { msg: lastErr.message })), { code: lastErr.code });
 }
 function renderResend() { const b = document.getElementById('resend'); if (b) b.hidden = !pendingAudio; }
-// Listen once and return transcript text ('' if nothing).
-async function listen(onPhase) {
+// Listen once and return transcript text ('' if nothing). `drive`: see transcribe().
+async function listen(onPhase, drive = false) {
   if (Recorder.supported()) {
     const rec = new Recorder();
     activeListen = { stop: () => rec.stop() };
-    const blob = await rec.start();
-    activeListen = null;
+    let blob;
+    // A failed start (no permission, no device) must not leave a dead recorder behind as the active one.
+    try { blob = await rec.start(); } finally { activeListen = null; }
     if (blob.size < 2000) return '';
     onPhase?.('transcribing');
-    return transcribe(blob);
+    return transcribe(blob, drive);
   }
   const ws = webSpeechListen();
   if (!ws) throw new Error(t('drive.noMic'));
@@ -303,26 +308,53 @@ function renderVoices() {
 renderVoices(); setDrive('idle');
 $('voice').onchange = () => { voice = $('voice').value; store.set('voice.' + getLang(), voice); };
 
+// Drive mode owns the mic, the conversation and the speaker while in these states.
+const DRIVE_BUSY = new Set(['listening', 'transcribing', 'thinking']);
+// One id per question, sent with each attempt, so the agent can tell a retried POST from a new question.
+// crypto.randomUUID needs Chromium 92+ and HTTPS; the car's browser may have neither.
+function newRequestId() {
+  try { if (crypto.randomUUID) return crypto.randomUUID(); } catch {}
+  const b = new Uint8Array(16);
+  try { crypto.getRandomValues(b); } catch { b.forEach((_, i) => b[i] = Math.random() * 256); }
+  b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128; // UUID version 4, RFC 4122 variant
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 async function ask(text) {
   const lang = getLang(); // answer in the language the question was asked in, even if the user switches meanwhile
+  const requestId = newRequestId();
   setDrive('thinking');
   showSaid(text); setSub('…', true);
   let j;
+  const ctl = inflight = new AbortController(), sig = ctl.signal;
   try {
-    inflight = new AbortController(); const sig = inflight.signal;
     for (let attempt = 0; ; attempt++) {
-      try { j = await api('/ask', { method: 'POST', body: JSON.stringify({ text, conversationId, lang }), signal: sig }); deliveringJobs.add(j.id); break; }
+      try { j = await api('/ask', { method: 'POST', body: JSON.stringify({ text, conversationId, lang, requestId }), signal: sig }); deliveringJobs.add(j.id); break; }
       catch (e) { if (sig.aborted || attempt >= 1) throw e; await sleep(1500); }
     }
+    // The agent runs the jobs of one conversation one at a time: a job waiting for an earlier one (e.g. a background
+    // task's summary) is `queued`, and its 5 minutes only start when it runs. Agents without queues never send it.
     const t0 = Date.now();
-    while (j.status === 'running') {
-      if (Date.now() - t0 > 5 * 60e3) throw new Error(t('drive.tooLong'));
+    let ran = 0, still = false;
+    const late = () => Date.now() - t0 > 15 * 60e3 || (ran && Date.now() - ran > 5 * 60e3);
+    for (;;) {
+      if (j.status === 'running' && j.queued) { if (driveLabel.key !== 'state.queued') setDrive('thinking', { key: 'state.queued' }); }
+      else if (!ran) { ran = Date.now(); if (driveLabel.key === 'state.queued') setDrive('thinking'); }
+      if (j.status !== 'running') break;
+      if (ran && !still && Date.now() - ran > 12000) { still = true; setDrive('thinking', { key: 'state.stillThinking' }); }
+      if (late()) throw new Error(t('drive.tooLong'));
       await sleep(1200);
       if (sig.aborted) throw cancelled();
-      try { j = await api('/ask/' + j.id, { timeout: 15000, signal: sig }); } catch (e) { if (sig.aborted || Date.now() - t0 > 5 * 60e3) throw e; }
-      if (Date.now() - t0 > 12000 && Date.now() - t0 < 13300) setDrive('thinking', { key: 'state.stillThinking' });
+      try { j = await api('/ask/' + j.id, { timeout: 15000, signal: sig }); } catch (e) {
+        // The agent forgot the job (it restarted): it will never finish, so don't keep "thinking" for 5 minutes.
+        if (e.code === 'unknown_job') throw Object.assign(new Error(t('drive.jobLost')), { code: e.code });
+        if (sig.aborted || late()) throw e;
+      }
     }
-    if (j.status === 'error') throw new Error(j.error || t('errors.generic'));
+    // With `detail` (Claude's own words), `error` is a sentence in the question's language, ready to be spoken as is.
+    // Spoken right here, like a reply: its notification must not pop up again as unread next time the app opens.
+    if (j.status === 'error' && j.notificationId) markRead([j.notificationId]);
+    if (j.status === 'error') throw Object.assign(new Error(j.error || t('errors.generic')), { ready: !!(j.error && j.detail) });
     conversationId = j.conversationId; store.set('conversationId', conversationId);
     const reply = j.reply || t('drive.emptyReply');
     history.push({ q: text, a: reply, ts: Date.now() }); history = history.slice(-30); store.set('history', history);
@@ -333,14 +365,15 @@ async function ask(text) {
   } catch (e) {
     // we are not delivering this answer ourselves any more: let it pop up as a notification when it arrives
     if (j?.status === 'running') deliveringJobs.delete(j.id);
-    if (e.code === 'cancelled') { setDrive('idle', { key: 'drive.cancelled' }); inflight = null; return; }
-    const msg = t('drive.problem', { msg: e.message });
-    if (!(await speak(msg, s => setDrive(s)))) return;
-  }
-  inflight = null;
+    if (e.code === 'cancelled') { setDrive('idle', { key: 'drive.cancelled' }); return; }
+    if (!(await (e.ready ? speak(e.message, s => setDrive(s), lang) : speak(t('drive.problem', { msg: e.message }), s => setDrive(s))))) return;
+  } finally { if (inflight === ctl) inflight = null; }
   setDrive('idle'); idleSub();
 }
 
+// Microphone errors, as an i18n key (null: show the browser's own message).
+const micErrorKey = e => e.name === 'NotAllowedError' || e.message.includes('Permission') ? 'drive.noMicPermission'
+  : e.name === 'NotFoundError' || e.name === 'NotReadableError' ? 'drive.noMic' : null;
 talk.onclick = async () => {
   unlockAudio();
   requestWakeLock();
@@ -348,22 +381,23 @@ talk.onclick = async () => {
   if (driveState === 'speaking') { stopSpeaking(); setDrive('idle'); return idleSub(); }
   if (driveState === 'transcribing' || driveState === 'thinking') { inflight?.abort(); return; }
   if (driveState !== 'idle') return;
+  if (dictating) return toast('common.voiceBusy');
   setDrive('listening');
   try {
-    const text = (await listen(p => setDrive(p))).trim();
+    const text = (await listen(p => setDrive(p), true)).trim();
     if (!text) { setDrive('idle', { key: 'drive.didntHear' }); return; }
     await ask(text);
   } catch (e) {
-    const key = e.name === 'NotAllowedError' || e.message.includes('Permission') ? 'drive.noMicPermission'
-      : e.name === 'NotFoundError' || e.name === 'NotReadableError' ? 'drive.noMic' : null;
+    const key = micErrorKey(e);
     setDrive('idle', key ? { key } : e.message);
   }
 };
 $('resend').onclick = async () => {
   if (!pendingAudio || driveState !== 'idle') return;
+  if (dictating) return toast('common.voiceBusy');
   unlockAudio(); setDrive('transcribing');
   try {
-    const text = (await transcribe(pendingAudio)).trim();
+    const text = (await transcribe(pendingAudio, true)).trim();
     if (!text) { setDrive('idle', { key: 'drive.emptyRecording' }); pendingAudio = null; renderResend(); return; }
     await ask(text);
   } catch (e) { setDrive('idle', e.message); }
@@ -383,17 +417,22 @@ async function requestWakeLock() {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && current === 'drive') requestWakeLock(); });
 
 // ---------- dictation mic buttons ----------
+// One voice input at a time: dictation and drive mode share the mic (and activeListen), so neither starts while the
+// other is busy. A failed dictation is only a toast; it never becomes a drive-mode Resend.
+let dictating = false, dictCtl = null; // from tap to transcript; the dictation's STT upload (see transcribe())
 document.querySelectorAll('[data-mic]').forEach(b => {
   b.innerHTML = MIC_SVG;
   b.onclick = async () => {
-    if (b.classList.contains('on')) return activeListen?.stop();
-    b.classList.add('on');
+    // tapping the lit button sends the recording, or cancels its upload (which would otherwise block drive mode)
+    if (b.classList.contains('on')) return activeListen ? activeListen.stop() : dictCtl?.abort();
+    if (dictating || DRIVE_BUSY.has(driveState)) return toast('common.voiceBusy');
+    dictating = true; b.classList.add('on');
     try {
-      const t = await listen();
+      const text = await listen();
       const ta = $(b.dataset.mic);
-      if (t) ta.value = (ta.value ? ta.value.trimEnd() + ' ' : '') + t;
-    } catch (e) { toast(e.message); }
-    b.classList.remove('on');
+      if (text) ta.value = (ta.value ? ta.value.trimEnd() + ' ' : '') + text;
+    } catch (e) { toast(e.code === 'cancelled' ? 'errors.cancelled' : micErrorKey(e) || e.message); }
+    finally { dictating = false; b.classList.remove('on'); }
   };
 });
 
@@ -490,16 +529,25 @@ async function loadDirs() {
 }
 $('newform').onsubmit = async e => {
   e.preventDefault();
+  if ($('n-go').disabled) return; // already starting one (Enter in a field still submits)
   const cwd = $('n-custom').value.trim() || $('n-dir').value;
   const prompt = $('n-prompt').value.trim();
   if (!prompt) { nErrKey = 'new.needTask'; return $('n-err').textContent = t(nErrKey); }
   nErrKey = null; $('n-err').textContent = ''; $('n-go').disabled = true; $('n-go').textContent = t('new.starting');
   try {
-    const r = await api('/sessions/new', { method: 'POST', body: JSON.stringify({ cwd, prompt }) });
+    // Starting takes up to about a minute (shell, Claude Code, the trust prompt); the web proxy gives up at 120 s.
+    const r = await api('/sessions/new', { method: 'POST', body: JSON.stringify({ cwd, prompt }), timeout: 100000 });
     toast('new.started', { name: base(r.cwd) });
     $('n-prompt').value = ''; $('n-custom').value = '';
-    show('sessions');
-  } catch (err) { nErrKey = null; $('n-err').textContent = err.message; }
+    if (current === 'new') show('sessions'); // don't yank someone who moved on (e.g. to Drive) meanwhile
+  } catch (err) {
+    if (err.timedOut) {
+      // The agent may still be starting it: point to Sessions instead of inviting a retry that would start a duplicate.
+      nErrKey = 'new.maybeStarting'; $('n-err').textContent = t(nErrKey);
+      toast('new.maybeStarting', null, 8000);
+      if (current === 'new') show('sessions');
+    } else { nErrKey = null; $('n-err').textContent = err.message; }
+  }
   $('n-go').disabled = false; $('n-go').textContent = t('new.start');
 };
 
@@ -595,6 +643,8 @@ $('nreadall').onclick = () => markRead('all');
 // Open a notification: continue its conversation and read it aloud.
 async function openNotif(n) {
   if (!n) return;
+  // A question in progress would overwrite the conversation and talk over this when its answer lands: keep it unread.
+  if (DRIVE_BUSY.has(driveState)) return toast('notifs.busy');
   unlockAudio();
   if (!n.read) markRead([n.id]);
   show('drive');

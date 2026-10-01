@@ -81,6 +81,19 @@ The web app reached the agent, but the agent answered `401`: `DASHCALL_AGENT_TOK
 `502 agent_auth`, so you stay logged in and the app shows this message instead of sending you back to the login page.
 Make the two values equal, then restart the container (`docker compose up -d`) or the agent, whichever you changed.
 
+## "The Mac agent restarted and lost this question"
+
+The agent no longer knows the job the app was waiting for (`unknown_job`), almost always because it restarted while
+answering: a crash, an update, `launchctl kickstart`, or launchd restarting it after the Mac woke up. That answer won't
+arrive, so the app stops waiting right away instead of after 5 minutes. Ask again. If it keeps happening, look in
+`logs/agent.log` for why the agent restarts.
+
+## "Waiting for the previous answer"
+
+The agent answers the questions of one conversation one at a time, and an earlier job of this conversation is still
+running, usually the summary of a background task that just finished. Your question runs as soon as it is done, and
+its 5-minute limit only starts then. Tap to stop waiting: the answer still arrives later as a notification.
+
 ## The web app or the agent exits right after starting (`cannot listen on …`)
 
 Both servers print `cannot listen on <address>:<port>: <reason>` and exit with status 1 when they can't open their
@@ -188,6 +201,12 @@ as *stuck waiting for input* after about 20 seconds.
 Claude Code didn't become ready within 60 seconds. Open the herdr workspace on the Mac and look: common causes are a
 login prompt (run `claude` once by hand), a slow shell startup, or a wrong `DASHCALL_SESSION_COMMAND`.
 
+### "No answer yet — the session may still be starting"
+
+The app waits up to 100 seconds for a new job to start (the web app gives the agent 120). If nothing comes back in
+time, the session may still be starting on the Mac, so the app shows **Sessions** and keeps your task in the form
+instead of retrying. Check **Sessions** before you press **Start** again, or you may get the same job twice.
+
 ### `folder_outside_root`
 
 The folder isn't under `DASHCALL_WORKSPACE_ROOT` (default: your home directory). Symlinks are resolved first, so a
@@ -221,6 +240,13 @@ fix the permissions.
 Browsers only allow microphone access on secure pages: `https://` or `http://localhost`. Over `http://` with an IP
 address, the microphone is blocked. Serve the app over HTTPS. If you denied access earlier, allow it again in the
 site settings (on iOS: Settings → Safari → Microphone).
+
+### "Voice input is busy"
+
+The microphone takes one voice input at a time. A dictation button doesn't start while Drive mode is listening,
+transcribing or waiting for an answer, and the talk button doesn't start while a dictation is recording or being
+transcribed. Wait a moment and tap again, or tap the lit dictation button to cancel a dictation that is still being
+transcribed. A failed dictation only shows a message; **Resend** in Drive mode is for Drive-mode recordings only.
 
 ### No sound on iPhone, iPad or in the car
 

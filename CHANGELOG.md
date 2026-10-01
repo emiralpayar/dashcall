@@ -17,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   silence and noise never reach whisper ("Altyazı M.K.", "Thank you.", "you"). whisper also runs without non-speech
   tokens and without feeding its own text back, and the agent drops known silence hallucinations and a sentence
   sequence whisper repeated. A recording of only "thank you" now comes back empty on purpose.
+- **Web app voice flow:** a question whose job the agent forgot (it restarted) stops at once with a clear message
+  instead of "thinking" for 5 minutes, and every question carries a `requestId` so a retried POST can't ask twice. A
+  question queued behind an earlier job of its conversation says "Waiting for the previous answer" and gets its full
+  5 minutes once it runs. Errors are no longer left as unread notifications after being spoken, and the agent's
+  ready-made usage-limit, login and overload sentences are spoken as is.
+- **New job** waits up to 100 s for a slow session start and, on a timeout, points to **Sessions** instead of
+  inviting a retry that could start the same job twice.
+- Dictation and Drive mode no longer share state: one voice input runs at a time, a failed dictation is only a
+  message (never a Drive **Resend**), and a dictation's upload can be cancelled from its button. Opening a
+  notification while a question is being answered is refused instead of taking over the conversation, and a
+  microphone that fails to start is released.
 
 ### Changed
 
