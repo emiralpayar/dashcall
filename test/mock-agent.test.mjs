@@ -48,6 +48,31 @@ test('answers through the job flow in the requested language', async () => {
   assert.ok(en.notificationId && en.conversationId);
 });
 
+test('ask: a retried POST with the same requestId gets the same job, with the full poll view', async () => {
+  const first = await (await post('/api/ask', { text: 'what is going on?', lang: 'en', requestId: 'demo-retry-1' })).json();
+  assert.equal(first.status, 'running');
+  assert.deepEqual(Object.keys(first).sort(), ['elapsed', 'id', 'lang', 'status']);
+  // retried while running: same job, nothing new started
+  assert.equal((await (await post('/api/ask', { text: 'what is going on?', lang: 'en', requestId: 'demo-retry-1' })).json()).id, first.id);
+  let j = first;
+  while (j.status === 'running') { await new Promise(r => setTimeout(r, 200)); j = await (await call('/api/ask/' + first.id)).json(); }
+  // retried after it finished: the POST carries the reply, like a poll does
+  const again = await (await post('/api/ask', { text: 'what is going on?', lang: 'en', requestId: 'demo-retry-1' })).json();
+  assert.equal(again.id, first.id);
+  assert.equal(again.status, 'done');
+  assert.equal(again.reply, j.reply);
+  assert.equal(again.conversationId, j.conversationId);
+  assert.equal(again.notificationId, j.notificationId);
+  // a new requestId (or none) is a new question
+  assert.notEqual((await (await post('/api/ask', { text: 'hi', requestId: 'demo-retry-2' })).json()).id, first.id);
+  assert.notEqual((await (await post('/api/ask', { text: 'hi' })).json()).id, first.id);
+  for (const requestId of ['', 'has space', 'x'.repeat(65), 42, ['a']]) {
+    const r = await post('/api/ask', { text: 'hi', requestId });
+    assert.equal(r.status, 400);
+    assert.equal((await r.json()).code, 'bad_request_id');
+  }
+});
+
 test('speech: canned transcript per language, and the demo is silent', async () => {
   const stt = async lang => (await (await call('/api/stt?lang=' + lang, { method: 'POST', body: Buffer.alloc(64), type: 'audio/webm' })).json()).text;
   assert.match(await stt('en'), /sessions/);

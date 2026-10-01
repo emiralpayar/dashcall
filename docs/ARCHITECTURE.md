@@ -43,8 +43,9 @@ rest: the title, the last user prompt and the last assistant message.
    request. The agent accepts only WebM, Ogg, MP4 or WAV (it checks magic bytes), converts the audio to 16 kHz mono
    WAV with ffmpeg, and runs `whisper-cli -l <lang>`. Response: `{text}`.
 3. **Ask.** `POST /api/ask {text, conversationId, lang, requestId}`. The agent starts a job and immediately returns
-   `{id, status: "running"}`. `requestId` makes the call safe to retry: the same ID returns the job it already
-   started instead of asking twice, with its reply if it has already finished.
+   the same view as a poll (step 5), for a new job `{id, status: "running", lang, elapsed}`. `requestId` makes the
+   call safe to retry: the same ID returns the job it already started instead of asking twice, with its reply if it
+   has already finished. The demo's mock agent does the same.
 4. **Dispatch.** The agent spawns this command (built by `dispatcherArgs` in `agent/dispatch.mjs`), with
    `dispatcher/` as the working directory:
 
