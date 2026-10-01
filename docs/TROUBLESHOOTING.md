@@ -21,12 +21,24 @@ the cookie is dropped.
 ### "Too many attempts" (`rate_limited`)
 
 After 10 failed logins from one IP in 15 minutes, logins from that IP are blocked until the window passes. If
-*everyone* is blocked at once, the web app is seeing your proxy's IP instead of the clients'. Set
-`DASHCALL_TRUST_PROXY=1` (the compose file already does) and make sure the proxy sets `X-Forwarded-For`.
+*everyone* is blocked at once, either someone made 30 failed attempts from different IPs (the global limit; the web
+app logs every `login failed`), or the web app is seeing your proxy's IP instead of the clients'. For the latter, set
+`DASHCALL_TRUST_PROXY=1` (the compose file already does) and make sure the proxy sets `X-Forwarded-For`. For an
+attack, block the IPs from those log lines at Caddy or your firewall and restart the web app to clear the counters.
+Devices that are already logged in keep working, so don't raise `DASHCALL_SESSION_EPOCH` or change the password
+until the attack stops.
+
+### The one-time code is always rejected
+
+With `DASHCALL_TOTP_SECRET` set, `bad_login` means the password or the code is wrong. If the code is right, check
+that the server's clock is correct (`date -u`): codes are only accepted within about 30 seconds of the server's time.
+`code_used` means that code was already used, for example on another device a moment ago; wait for the next one.
 
 ### Everyone was signed out
 
-That happens when `DASHCALL_PASSWORD` or `DASHCALL_SECRET` changes, which is by design.
+That happens when `DASHCALL_PASSWORD`, `DASHCALL_SECRET`, `DASHCALL_TOTP_SECRET` or `DASHCALL_SESSION_EPOCH` changes,
+which is by design, and once after updating from 0.1.0, whose one-year cookies are no longer accepted. A device that
+hasn't opened the app for `DASHCALL_SESSION_DAYS` (30) days is signed out too.
 
 ## `403 cross_origin` on login or when sending anything
 

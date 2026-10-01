@@ -149,8 +149,9 @@ okuması için `[[PR|pi ar]]` gibi bir telaffuz işaretiyle yazar; altyazıda ya
 - Dispatcher, `dashcall` CLI'yı gözetimsiz kullanabilmek için `--dangerously-skip-permissions` ile çalışır. Okuduğu
   metinler (oturum çıktıları, araştırma sonuçları, yanlış anlaşılmış bir ses kaydı) prompt injection içerebilir.
 - Agent'ı özel bir ağda (Tailscale) tut, asla internete açma. Her istek bearer token gerektirir.
-- Web uygulamasında hız sınırlı şifre girişi, imzalı HttpOnly çerezler, API yazma isteklerinde aynı köken kontrolü ve
-  sıkı bir Content Security Policy var. Uygulamayı yalnızca HTTPS üzerinden sun.
+- Web uygulamasında isteğe bağlı iki adımlı doğrulamalı (`DASHCALL_TOTP_SECRET`) hız sınırlı şifre girişi, 30 gün
+  kullanılmayınca geçersizleşen imzalı HttpOnly çerezler, API yazma isteklerinde aynı köken kontrolü ve sıkı bir
+  Content Security Policy var. Uygulamayı yalnızca HTTPS üzerinden sun.
 - Yeni oturumlar yalnızca `DASHCALL_WORKSPACE_ROOT` altında açılabilir (varsayılan: ev dizinin).
 
 Ayrıntılar [SECURITY.md](SECURITY.md) dosyasında. Güvenlik açıklarını lütfen orada anlatıldığı gibi gizli bildir.

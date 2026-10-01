@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { base32Decode, totpStep } from './totp.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 // Loopback by default; the Docker image sets HOST=0.0.0.0 (compose still publishes it on 127.0.0.1 only).
@@ -17,26 +18,46 @@ const AGENT_TOKEN = process.env.DASHCALL_AGENT_TOKEN;
 const TRUST_PROXY = process.env.DASHCALL_TRUST_PROXY === '1';
 // Session cookies are Secure (HTTPS only) unless DASHCALL_COOKIE_SECURE=0, e.g. for local development over http.
 const COOKIE_SECURE = process.env.DASHCALL_COOKIE_SECURE !== '0';
+// A login lasts this many days after the device's last visit (sliding): active devices get a fresh cookie once a day.
+const SESSION_DAYS = Number(process.env.DASHCALL_SESSION_DAYS || 30);
+// Part of every signed session token: change it (0 -> 1 -> 2 ...) to sign out every device ("sign out everywhere").
+const SESSION_EPOCH = process.env.DASHCALL_SESSION_EPOCH || '0';
+// Optional second factor: the base32 secret of an authenticator app (RFC 6238). `node scripts/totp-secret.mjs` makes one.
+const TOTP_SECRET = process.env.DASHCALL_TOTP_SECRET;
 const missing = ['DASHCALL_PASSWORD', 'DASHCALL_SECRET', 'DASHCALL_AGENT_URL', 'DASHCALL_AGENT_TOKEN'].filter(k => !process.env[k]);
 if (missing.length) { console.error('missing env:', missing.join(', '), '(see web/.env.example)'); process.exit(1); }
+// Browsers cap cookie lifetimes at 400 days.
+if (!(SESSION_DAYS > 0 && SESSION_DAYS <= 400)) { console.error('DASHCALL_SESSION_DAYS must be a number of days, more than 0 and at most 400'); process.exit(1); }
+const TOTP_KEY = TOTP_SECRET ? base32Decode(TOTP_SECRET) : null;
+// Refuse to start rather than silently run without the second factor the owner asked for.
+if (TOTP_SECRET && !(TOTP_KEY?.length >= 10)) { console.error('DASHCALL_TOTP_SECRET must be a base32 secret of at least 16 characters (node scripts/totp-secret.mjs makes one)'); process.exit(1); }
 if (PASSWORD.length < 12) console.warn('warning: DASHCALL_PASSWORD is short; anyone who guesses it can run commands on your Mac');
 if (SECRET.length < 32) console.warn('warning: DASHCALL_SECRET should be at least 32 random characters');
 
 const PUB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const COOKIE = 'dashcall';
-const YEAR = 365 * 24 * 3600;
+const MAX_AGE = Math.round(SESSION_DAYS * 86400); // seconds
+const REFRESH_AFTER = Math.min(86400, MAX_AGE / 2);
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 const sign = v => createHmac('sha256', SECRET).update(v).digest('base64url');
 const eq = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
 
-// The password is part of the signed payload, so changing it signs out every existing session.
-const tokenSig = exp => sign(`${exp}.${sign('pw:' + PASSWORD)}`);
-function makeToken() { const exp = String(Math.floor(Date.now() / 1000) + YEAR); return `${exp}.${tokenSig(exp)}`; }
-function validToken(t) {
-  const [exp, sig] = String(t || '').split('.');
-  return !!exp && !!sig && eq(sig, tokenSig(exp)) && Number(exp) > Date.now() / 1000;
+// Session token: `<issued>.<expires>.<signature>` (Unix seconds). The signature also covers the password, the TOTP
+// secret and DASHCALL_SESSION_EPOCH, so changing any of them signs out every device. Tokens from before sliding
+// sessions (`<expires>.<signature>`, valid for a year) are no longer accepted: those devices log in once more.
+const CREDS = sign(`pw:${PASSWORD}\0totp:${TOTP_KEY?.toString('hex') || ''}\0epoch:${SESSION_EPOCH}`);
+const tokenSig = (iat, exp) => sign(`${iat}.${exp}.${CREDS}`);
+function makeToken() { const iat = Math.floor(Date.now() / 1000), exp = iat + MAX_AGE; return `${iat}.${exp}.${tokenSig(iat, exp)}`; }
+// The token's issue time in seconds, or null if it is forged, expired or older than DASHCALL_SESSION_DAYS allows now
+// (so lowering the setting also shortens existing logins).
+function tokenIssued(t) {
+  const m = /^(\d{1,12})\.(\d{1,12})\.([\w-]{43})$/.exec(String(t || ''));
+  if (!m || !eq(m[3], tokenSig(m[1], m[2]))) return null;
+  const iat = Number(m[1]), now = Date.now() / 1000;
+  return Number(m[2]) > now && iat + MAX_AGE > now ? iat : null;
 }
+const sessionCookie = (token, maxAge = MAX_AGE) => `${COOKIE}=${token}; Max-Age=${maxAge}; Path=/; HttpOnly;${COOKIE_SECURE ? ' Secure;' : ''} SameSite=Lax`;
 const safeDecode = v => { try { return decodeURIComponent(v); } catch { return ''; } };
 function cookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=')).filter(p => p[0]).map(([k, ...v]) => [k, safeDecode(v.join('='))]));
@@ -47,18 +68,25 @@ function clientIp(req) {
   return (xff ? xff.split(',').pop() : req.socket.remoteAddress || '').trim();
 }
 
-// login rate limit: 10 attempts / 15 min per IP
-const WINDOW = 15 * 60e3;
-const attempts = new Map();
-function limited(ip) {
-  const now = Date.now(), a = (attempts.get(ip) || []).filter(t => now - t < WINDOW);
-  attempts.set(ip, a);
-  return a.length >= 10;
+// Login rate limits: at most 10 failed attempts per client IP and 30 across all IPs in 15 minutes. The global cap
+// stops guesses spread over many IPs (a botnet); the price is that during such an attack nobody can log in until
+// the window passes, while devices that are already logged in keep working. Successful logins don't count.
+const WINDOW = 15 * 60e3, MAX_PER_IP = 10, MAX_TOTAL = 30;
+const attempts = new Map(), allAttempts = []; // timestamps of failed and still running attempts
+// Prunes in place rather than replacing the array, so a running attempt still finds its stamp to un-count it.
+function prune(a) { const now = Date.now(); a.splice(0, a.length, ...a.filter(t => now - t < WINDOW)); return a; }
+// Counts an attempt before the request body is awaited, so parallel requests can't all pass the check. Returns null
+// when a limit is reached, otherwise a function that un-counts the attempt (for a successful login).
+function countAttempt(ip) {
+  const mine = prune(attempts.get(ip) || []);
+  if (mine.length >= MAX_PER_IP || prune(allAttempts).length >= MAX_TOTAL) return null;
+  const stamp = Date.now();
+  mine.push(stamp); allAttempts.push(stamp); attempts.set(ip, mine);
+  return () => { for (const a of [mine, allAttempts]) { const i = a.indexOf(stamp); if (i >= 0) a.splice(i, 1); } };
 }
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, a] of attempts) if (!a.some(t => now - t < WINDOW)) attempts.delete(ip);
-}, 60e3).unref();
+setInterval(() => { for (const [ip, a] of attempts) if (!prune(a).length) attempts.delete(ip); }, 60e3).unref();
+// The newest time step whose one-time code was used: RFC 6238 says a code must not be accepted twice.
+let lastTotpStep = -1;
 
 // State-changing API calls must come from our own page (defence in depth on top of SameSite cookies).
 function sameOrigin(req) {
@@ -137,30 +165,51 @@ server.listen(PORT, HOST, () => log(`dashcall web on ${HOST}:${server.address().
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const ip = clientIp(req);
-  const authed = validToken(cookies(req)[COOKIE]);
+  const issued = tokenIssued(cookies(req)[COOKIE]), authed = issued !== null;
 
   if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+  // Sliding session: renew a cookie older than a day on whatever response this request gets (API, page or error),
+  // so a phone or car that is used now and then stays logged in. writeHead() merges this header in.
+  if (authed && Date.now() / 1000 - issued > REFRESH_AFTER) res.setHeader('set-cookie', sessionCookie(makeToken()));
 
   if (url.pathname === '/login' && req.method === 'POST') {
     if (!sameOrigin(req)) return fail(res, 403, 'cross_origin', 'cross-origin request refused');
-    if (limited(ip)) return fail(res, 429, 'rate_limited', 'too many attempts, try again in 15 minutes');
-    // count the attempt before awaiting the body, so parallel requests can't all pass the limit check
-    const stamp = Date.now(), tries = attempts.get(ip) || [];
-    tries.push(stamp); attempts.set(ip, tries);
-    let pw = '';
-    try { pw = JSON.parse(await readBody(req, 10000)).password || ''; } catch {}
-    if (!eq(sign('pw:' + pw), sign('pw:' + PASSWORD))) {
+    const release = countAttempt(ip);
+    if (!release) return fail(res, 429, 'rate_limited', 'too many attempts, try again in 15 minutes');
+    let pw = '', code = '';
+    try { ({ password: pw = '', code = '' } = JSON.parse(await readBody(req, 10000))); } catch {}
+    const pwOk = eq(sign('pw:' + pw), sign('pw:' + PASSWORD));
+    if (TOTP_KEY) {
+      // One answer for a wrong password and a wrong code, so the password can't be guessed without the code. A reused
+      // code is reported whatever the password was, so that answer gives nothing away either.
+      // Apps and password managers show codes as "123 456" or "123-456": only the digits matter.
+      const step = totpStep(TOTP_KEY, String(code).replace(/\D/g, ''));
+      if (step >= 0 && step <= lastTotpStep) {
+        log('login failed (one-time code reused)', ip);
+        return fail(res, 401, 'code_used', 'this code was already used, wait for the next one');
+      }
+      if (!pwOk || step < 0) {
+        log(pwOk ? 'login failed (right password, wrong code)' : 'login failed', ip);
+        return fail(res, 401, 'bad_login', 'wrong password or code');
+      }
+      lastTotpStep = step;
+    } else if (!pwOk) {
       log('login failed', ip);
       return fail(res, 401, 'bad_password', 'wrong password');
     }
-    tries.splice(tries.indexOf(stamp), 1);
+    release();
     log('login ok', ip);
-    res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': `${COOKIE}=${makeToken()}; Max-Age=${YEAR}; Path=/; HttpOnly;${COOKIE_SECURE ? ' Secure;' : ''} SameSite=Lax` });
+    res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': sessionCookie(makeToken()) });
     return res.end('{"ok":true}');
+  }
+  // Public, so the login page knows whether to ask for a one-time code.
+  if (url.pathname === '/login/config' && req.method === 'GET') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    return res.end(JSON.stringify({ totp: !!TOTP_KEY }));
   }
   if (url.pathname === '/logout' && req.method === 'POST') {
     if (!sameOrigin(req)) return fail(res, 403, 'cross_origin', 'cross-origin request refused');
-    res.writeHead(204, { 'set-cookie': `${COOKIE}=; Max-Age=0; Path=/; HttpOnly;${COOKIE_SECURE ? ' Secure;' : ''} SameSite=Lax` }); return res.end();
+    res.writeHead(204, { 'set-cookie': sessionCookie('', 0) }); return res.end();
   }
 
   if (url.pathname.startsWith('/api/')) {
