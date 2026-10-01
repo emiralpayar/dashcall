@@ -143,7 +143,7 @@ Everything personal stays on the Mac, inside the repo folder, and is git-ignored
 | `state/watches.json` | Agent, `dashcall` CLI | Background tasks: waiting, fired or cancelled |
 | `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors, including Claude Code's error messages for failed dispatcher jobs. Questions, transcripts and dispatcher output that isn't valid JSON only with `DASHCALL_LOG_CONTENT=1`. |
 | `research/` | Sessions started for research | The dispatcher's default folder for research that belongs to no project |
-| `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them). The dispatcher's own conversations are stored here too. |
+| `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them, and caches their summaries in memory until a file's size or modification time changes). The dispatcher's own conversations are stored here too. |
 
 Files are written atomically (a temporary file, flushed to disk, then a rename), and every change holds a lock file
 next to the file (`<file>.lock`, containing the writer's process ID), so the agent and the CLI can both write them

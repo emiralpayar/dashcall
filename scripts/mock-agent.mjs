@@ -158,7 +158,9 @@ const brain = {
   ],
   muted: [{ id: id(), key: 'legacy-dashboard', label: 'legacy-dashboard', reason: L10N('archived project', 'arşivlenmiş proje'), ts: ago(12 * 86400) }],
 };
-const isMuted = s => brain.muted.some(m => m.key === s.sessionId || (s.cwd && s.cwd.toLowerCase().includes(m.key.toLowerCase())));
+// a simplified agent: a session id, or a single folder name matched as a whole path segment (path keys and
+// "code/api"-style names never match here); mutedBy is the key to forget
+const mutedFields = s => { const m = brain.muted.find(m => m.key === s.sessionId || (s.cwd && s.cwd.toLowerCase().split('/').includes(m.key.toLowerCase()))); return { muted: !!m, mutedBy: m?.key ?? null }; };
 
 const notifications = [ // oldest first (the API returns them newest first)
   { id: id(), ts: ago(3 * 3600), read: false, kind: 'task', lang: LANG, conversationId: null,
@@ -234,14 +236,14 @@ async function json(req) {
 }
 const requireText = t => { if (typeof t !== 'string' || !t.trim()) throw httpError(400, 'text_required', 'text required'); return t.trim(); };
 const session = pane => sessions.find(s => s.pane === pane) || (() => { throw httpError(500, 'internal', `pane ${pane} not found`); })();
-const pub = s => { const { screen, ...rest } = s; return { ...rest, muted: isMuted(s) }; };
+const pub = s => { const { screen, ...rest } = s; return { ...rest, ...mutedFields(s) }; };
 const KEYS = new Set(['esc', 'enter', 'ctrl+c', 'up', 'down', 'tab', 'shift+tab', '1', '2', '3']);
 
 const routes = [
   // Demo/development is silent: the app shows timed subtitles and plays no audio at all (DASHCALL_DEMO_SOUND=1 opts in).
   ['GET', /^\/api\/health$/, () => ({ ok: true, silent: !SOUND })],
   ['GET', /^\/api\/sessions$/, () => ({ sessions: sessions.map(pub) })],
-  ['GET', /^\/api\/recent$/, () => ({ sessions: [...sessions.map(pub), ...recentOnly.map(s => ({ ...s, mtime: s.lastTs, muted: isMuted(s) }))] })],
+  ['GET', /^\/api\/recent$/, () => ({ sessions: [...sessions.map(pub), ...recentOnly.map(s => ({ ...s, mtime: s.lastTs, ...mutedFields(s) }))] })],
   ['GET', /^\/api\/sessions\/([\w:]+)\/screen$/, (req, b, m) => ({ text: session(m[1]).screen })],
   ['POST', /^\/api\/sessions\/([\w:]+)\/prompt$/, (req, b, m) => {
     const s = session(m[1]), text = requireText(b.text);

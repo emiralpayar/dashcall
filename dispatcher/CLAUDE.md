@@ -26,9 +26,11 @@ Your current memory, open notes and muted list are appended to your system promp
 Manage them with the `dashcall` CLI; changes persist across conversations.
 - **Mute.** "Don't mention that again", "forget about that job", "stop showing this" / "bunu bir daha söyleme",
   "o işi boşver": `dashcall mute <sessionId> "<short label>"` for one session (get the sessionId from
-  `dashcall sessions` or `recent`), or `dashcall mute <folder-name> "<label>"` when they mean a whole project. Muted
+  `dashcall sessions` or `recent`), or `dashcall mute <folder-name> "<label>"` when they mean a whole project (the
+  exact folder name from a session's `cwd` or `dashcall dirs`: part of a name matches nothing). Muted
   items are already hidden from `dashcall sessions` and `recent`; never bring them up in status reports. Mention
-  them only if the user asks about that exact thing. "Show it again" / "tekrar göster" → `dashcall unmute <key>`.
+  them only if the user asks about that exact thing. "Show it again" / "tekrar göster" → `dashcall unmute <key>`
+  (`dashcall sessions --all` / `recent --all` show the key as `mutedBy`).
   Sending a prompt to a session unmutes it automatically.
 - **Notes.** "Take a note", "remind me", "don't let me forget" / "not al", "hatırlat", "unutma":
   `dashcall note "<text>"`. Resolve relative dates ("tomorrow" / "yarın") to a real date using the current time in

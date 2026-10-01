@@ -85,17 +85,19 @@ The Claude Code sessions running in herdr, without the dispatcher's own sessions
 { "sessions": [ {
   "pane": "<pane id>", "name": null, "agent": "claude", "status": "working",
   "cwd": "/Users/you/code/api", "workspace": "api", "title": "Fix flaky tests",
-  "sessionId": "0f8c…", "lastUser": "…", "lastAssistant": "…", "lastTs": "2026-09-29T08:12:00.000Z", "muted": false
+  "sessionId": "0f8c…", "lastUser": "…", "lastAssistant": "…", "lastTs": "2026-09-29T08:12:00.000Z",
+  "muted": false, "mutedBy": null
 } ] }
 ```
 
 `status` is herdr's agent status: `working`, `idle`, `blocked` or `done`. `lastUser` is clipped to 600 characters
-and `lastAssistant` to 1500. `muted` means a brain mute matches the session.
+and `lastAssistant` to 1500. `muted` means a brain mute matches the session, and `mutedBy` is that mute's key (the
+session ID or a folder; `null` when not muted). Pass it to `POST /api/brain/forget` to unmute the session.
 
 #### `GET /api/recent?hours=48`
 
 Sessions whose transcripts changed in the last `hours` (default 48, up to 30 results), including finished ones. The
-dispatcher's own sessions are left out, as in `/api/sessions`. Each item has `sessionId`, `title`, `cwd`, `lastUser`, `lastAssistant`, `lastTs`, `mtime` and `muted`.
+dispatcher's own sessions are left out, as in `/api/sessions`. Each item has `sessionId`, `title`, `cwd`, `lastUser`, `lastAssistant`, `lastTs`, `mtime`, `muted` and `mutedBy`.
 
 #### `GET /api/sessions/:pane/screen?lines=200`
 
@@ -248,14 +250,17 @@ Marks a note done and returns it. Errors: `not_found`.
 
 #### `POST /api/brain/mute`
 
-Body `{"key": "<Claude session id or folder name>", "label": "…"}`. Mutes a session (an exact session ID) or every
-session whose folder path contains `key`. Returns the mute; muting the same key twice returns the existing one.
-Errors: `key_required`.
+Body `{"key": "<Claude session id or folder>", "label": "…"}`. Mutes a session (an exact session ID) or every session
+in a folder. A folder name (`my-api`, or `code/my-api`) matches whole path segments of a session's folder, ignoring
+case, so `api` mutes `~/code/api` and `~/code/api/web` but not `~/rapid-x` or `~/api-server`. A path (`/…` or `~/…`)
+matches that folder and everything inside it. Returns the mute; muting the same key twice returns the existing one
+(folder keys that differ only in case or a trailing slash count as the same). Errors: `key_required`.
 
 #### `POST /api/brain/forget`
 
-Body `{"key": "<memory id | note id | mute id | mute key>"}`. Deletes that item and returns it. Errors:
-`key_required`, `not_found`.
+Body `{"key": "<memory id | note id | mute id | mute key>"}`. Deletes that item and returns it. A mute key also
+removes any other mute with an equivalent folder key (such as `api` and `API/`), so the sessions it matched are really
+unmuted. Errors: `key_required`, `not_found`.
 
 ## Web endpoints
 
