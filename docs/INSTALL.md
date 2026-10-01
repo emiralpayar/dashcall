@@ -292,6 +292,21 @@ Use the same port in the reverse proxy below.
 container, is only reachable from the same machine: it listens on `127.0.0.1` unless you set `HOST`. Keep
 `DASHCALL_TRUST_PROXY=1` only if a reverse proxy sits in front of it, as in the next step.
 
+### Two-factor login (optional, recommended)
+
+The password is all that stands between the internet and your Mac. To also require a 6-digit code from an
+authenticator app on your phone:
+
+```sh
+# on the Mac, in the repo (any machine with Node 22 works)
+node scripts/totp-secret.mjs dashcall.example.com
+```
+
+Add the printed secret to your authenticator app (type it in, or turn the `otpauth://` line into a QR code with
+`qrencode -t ansiutf8 '<uri>'`), put the printed `DASHCALL_TOTP_SECRET=…` line in `web/.env` on the server, and run
+`docker compose up -d` again. The login page then asks for the code as well. Details:
+[CONFIGURATION.md](CONFIGURATION.md#two-factor-login).
+
 ## 7. Server: HTTPS with Caddy
 
 Browsers only allow microphone access on HTTPS pages, and the login cookie is HTTPS-only. [Caddy](https://caddyserver.com)
@@ -323,8 +338,10 @@ Using another proxy, such as nginx or Traefik? Make sure it:
 2. Pick **EN** or **TR** in the header.
 3. The dot next to the logo turns green when the web app can reach your Mac.
 4. On **Drive**, tap the big button and allow microphone access. Ask "What are my sessions doing?"
-5. Tip: add the page to your home screen. The login lasts a year, or until you change `DASHCALL_PASSWORD`
-   or `DASHCALL_SECRET`.
+5. Tip: add the page to your home screen. A device stays logged in as long as it opens the app at least once every
+   30 days (`DASHCALL_SESSION_DAYS`). To sign out every device, for example after losing your phone, raise
+   `DASHCALL_SESSION_EPOCH` in `web/.env` and restart the web app
+   ([details](CONFIGURATION.md#staying-logged-in-and-signing-out-everywhere)).
 
 ## 9. Verification checklist
 
@@ -336,6 +353,7 @@ Using another proxy, such as nginx or Traefik? Make sure it:
 | herdr is visible | `curl -H "Authorization: Bearer <token>" http://<mac-ip>:7420/api/sessions` | Your sessions |
 | Web app is up | `curl https://dashcall.example.com/healthz` | `ok` |
 | API needs login | `curl -i https://dashcall.example.com/api/health` | `401`, code `login_required` |
+| Two-factor login (if set up) | `curl https://dashcall.example.com/login/config` | `{"totp":true}`, and the login page asks for a code |
 | Server and Mac tokens match | Log in and look at the dot next to the logo | Green. "The Mac rejected the server's token" (`502 agent_auth`) means `DASHCALL_AGENT_TOKEN` differs from `DASHCALL_TOKEN` |
 | Speech-to-text works | Tap the talk button and say something | Your words appear on screen |
 | Neural voice works | Listen to the answer | A natural voice. A robotic one means edge-tts fell back to `say`; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-voice-sounds-robotic-edge-tts-fallback) |

@@ -64,8 +64,46 @@ You don't set these. The agent passes them to each dispatcher run, and the `dash
 | `HOST` | `127.0.0.1` | no | Address to listen on. The default only accepts connections from the same machine, which is what a reverse proxy on the same server needs. The Docker image sets `HOST=0.0.0.0` so the published port works; Compose still publishes it on `127.0.0.1` only. |
 | `DASHCALL_TRUST_PROXY` | off | no | `1` takes the client IP for the login rate limit from the last `X-Forwarded-For` entry. Set it only behind a reverse proxy that adds that header; without one, clients could fake their IP. `web/docker-compose.yml` sets it to `1`. |
 | `DASHCALL_COOKIE_SECURE` | on | no | `0` drops the `Secure` flag from the session cookie so login works over plain `http://`. Only for local development and the demo. |
+| `DASHCALL_SESSION_DAYS` | `30` | no | How many days a login lasts after the device last used the app. Any number above 0 and up to 400 (browsers don't keep cookies longer). Lowering it also shortens existing logins. See [Staying logged in](#staying-logged-in-and-signing-out-everywhere). |
+| `DASHCALL_SESSION_EPOCH` | `0` | no | Part of every session cookie's signature. Change it, for example from `0` to `1`, and restart to **sign out every device**. |
+| `DASHCALL_TOTP_SECRET` | none | no | Turns on [two-factor login](#two-factor-login): the base32 secret your authenticator app uses (at least 16 characters; spaces and case don't matter). Make one with `node scripts/totp-secret.mjs`. Setting, changing or removing it signs out every device. The web app refuses to start if the value isn't valid base32. |
 
-The web app exits at startup and lists the missing variables if any required one is unset.
+The web app exits at startup and lists the missing variables if any required one is unset. It also exits if
+`DASHCALL_SESSION_DAYS` or `DASHCALL_TOTP_SECRET` has an invalid value.
+
+### Staying logged in and signing out everywhere
+
+A login is a signed, HttpOnly cookie. It stays valid for `DASHCALL_SESSION_DAYS` (30) days, and every device that
+uses the app gets a renewed cookie at most once a day. So a phone or a car that opens Dashcall at least once a month
+never has to log in again, and a device you stopped using is logged out after a month.
+
+To **sign out everywhere**, for example after losing a phone, raise `DASHCALL_SESSION_EPOCH` (`0` → `1` → `2` …) in
+`web/.env` and restart the web app (`docker compose up -d`). Every cookie issued before is rejected, and each device
+has to log in again. Changing `DASHCALL_PASSWORD`, `DASHCALL_SECRET` or `DASHCALL_TOTP_SECRET` has the same effect.
+
+Failed logins are limited to 10 per client IP and 30 in total (from all IPs together) per 15 minutes. After that the
+app answers `rate_limited` until the window passes; the global limit means that during an attack from many addresses
+nobody can log in for a while, but devices that are already logged in keep working.
+
+### Two-factor login
+
+With `DASHCALL_TOTP_SECRET` set, logging in needs the password **and** the 6-digit code from an authenticator app
+(Google Authenticator, 1Password, Authy, Bitwarden and others; RFC 6238, SHA-1, 30-second codes). The login page shows
+the code field on its own.
+
+1. Generate a secret on any machine with Node 22, such as your Mac, in the repo:
+   `node scripts/totp-secret.mjs dashcall.example.com` (the argument is the account name the app shows). With only
+   Docker on the server, run it from the repo root as
+   `docker run --rm -v "$PWD:/repo:ro" -w /repo node:22-alpine node scripts/totp-secret.mjs`.
+2. Add it to the authenticator app: scan a QR code of the printed `otpauth://` URI (for example
+   `qrencode -t ansiutf8 '<uri>'`), or type in the secret.
+3. Put the printed `DASHCALL_TOTP_SECRET=…` line in `web/.env` and restart the web app.
+
+Each code works once: logging in on a second device within the same 30 seconds needs the next code. The server's
+clock must be right (within about 30 seconds), because codes are accepted for the current 30-second step and one step
+either side. A wrong password and a wrong code get the same answer (`bad_login`), so the password can't be guessed on
+its own, and failed codes count toward the login limits. Only the web app's log tells the two apart: `login failed
+(right password, wrong code)` means someone knows your password, so change it.
 
 ## Demo mode
 

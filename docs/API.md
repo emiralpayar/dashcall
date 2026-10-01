@@ -52,7 +52,9 @@ translated message for known codes (`errors.<code>` in `web/public/i18n.js`) and
 | --- | --- | --- |
 | `login_required` | 401 | `/api/*` without a valid session cookie |
 | `bad_password` | 401 | Wrong password at `/login` |
-| `rate_limited` | 429 | More than 10 login attempts from one IP in 15 minutes |
+| `bad_login` | 401 | Two-factor login is on and the password or the one-time code is wrong (deliberately the same answer for both) |
+| `code_used` | 401 | Two-factor login is on and the one-time code (or an older one) was already used; wait for the next code |
+| `rate_limited` | 429 | 10 failed logins from one IP, or 30 from all IPs together, in the last 15 minutes |
 | `cross_origin` | 403 | A login or non-GET API call that isn't same-origin |
 | `too_large` | 413 | The body is over 25 MB |
 | `agent_unreachable` | 502 | The agent didn't answer: it's down or unreachable, or the 120 s timeout passed |
@@ -267,9 +269,12 @@ unmuted. Errors: `key_required`, `not_found`.
 | Method and path | Auth | Description |
 | --- | --- | --- |
 | `GET /healthz` | none | Returns `ok` (plain text). For uptime checks and load balancers. |
-| `POST /login` | same-origin | Body `{"password": "…"}`. On success, sets the `dashcall` cookie (HttpOnly, `Secure` unless `DASHCALL_COOKIE_SECURE=0`, `SameSite=Lax`, one year) and returns `{"ok": true}`. Errors: `cross_origin`, `rate_limited`, `bad_password`. |
+| `POST /login` | same-origin | Body `{"password": "…", "code": "123456"}` (`code` only with two-factor login; spaces are ignored). On success, sets the `dashcall` cookie (HttpOnly, `Secure` unless `DASHCALL_COOKIE_SECURE=0`, `SameSite=Lax`, valid for `DASHCALL_SESSION_DAYS` days) and returns `{"ok": true}`. Errors: `cross_origin`, `rate_limited`, `bad_password`, or with two-factor login `bad_login` and `code_used`. |
+| `GET /login/config` | none | `{"totp": true}` when two-factor login is on (`DASHCALL_TOTP_SECRET`), so the login page shows the code field. |
 | `POST /logout` | same-origin | Clears the session cookie (204). |
 | `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent. Errors: `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |
 | `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`. |
 
 All static responses carry the security headers described in [ARCHITECTURE.md](ARCHITECTURE.md#security-model-briefly).
+When a request carries a valid cookie that was issued more than a day ago, its response (static file, `/api/*` or
+error) also sets a renewed cookie, so devices in use stay logged in.

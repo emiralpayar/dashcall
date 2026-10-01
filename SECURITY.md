@@ -16,7 +16,14 @@ Security fixes go into the latest release and the `main` branch.
 ## Threat model
 
 - **The web login is the perimeter.** Whoever is logged in controls your Claude Code sessions and, through them, your
-  Mac. Use a long random `DASHCALL_PASSWORD` and serve the app only over HTTPS.
+  Mac. Use a long random `DASHCALL_PASSWORD` and serve the app only over HTTPS. Failed logins are limited to 10 per
+  client IP and 30 from all IPs together per 15 minutes; the global limit trades a temporary lockout during an attack
+  for a hard cap on guesses. Turning on two-factor login (`DASHCALL_TOTP_SECRET`, one-time codes from an authenticator
+  app) is recommended; see [CONFIGURATION.md](docs/CONFIGURATION.md#two-factor-login).
+- **Logins expire and can be revoked.** A login lasts `DASHCALL_SESSION_DAYS` (30) days after the device last used the
+  app. If a logged-in device is lost or stolen, **sign out everywhere** by raising `DASHCALL_SESSION_EPOCH` and
+  restarting the web app; changing the password, `DASHCALL_SECRET` or `DASHCALL_TOTP_SECRET` also signs out every
+  device. See [CONFIGURATION.md](docs/CONFIGURATION.md#staying-logged-in-and-signing-out-everywhere).
 - **The agent must stay private.** Bind it to a private address (for example Tailscale) and never expose it publicly.
   Every request needs the `DASHCALL_TOKEN` bearer token.
 - **The dispatcher may only run the `dashcall` CLI.** Anything it reads, such as session output, research results or

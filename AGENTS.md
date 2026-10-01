@@ -29,6 +29,7 @@ agent/                 Mac-side HTTP API (Node, no deps)
 dispatcher/CLAUDE.md   runtime prompt of the dispatcher (see above)
 web/                   login + static SPA + /api proxy (Node, no deps, Docker)
   server.mjs           settings at the top of the file, then everything else
+  totp.mjs             one-time codes (RFC 6238) for the optional two-factor login
   public/              the SPA: index.html, app.js, login.html, login.js, i18n.js, style.css
 tts/speak.py           edge-tts wrapper (MP3 + word timings)
 scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh

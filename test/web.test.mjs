@@ -2,10 +2,21 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { createHmac } from 'node:crypto';
 import { startServer } from './helpers.mjs';
+import { base32Encode, hotp, STEP } from '../web/totp.mjs';
 
-const TOKEN = 'a'.repeat(40), PASSWORD = 'correct horse battery staple';
+const TOKEN = 'a'.repeat(40), PASSWORD = 'correct horse battery staple', SECRET = 's'.repeat(40);
 let web, agent, base, seen = [];
+const env = extra => ({
+  PORT: '0', DASHCALL_PASSWORD: PASSWORD, DASHCALL_SECRET: SECRET,
+  DASHCALL_AGENT_URL: `http://127.0.0.1:${agent.address().port}`, DASHCALL_AGENT_TOKEN: TOKEN, DASHCALL_TRUST_PROXY: '1', ...extra,
+});
+// A second web app with other settings, for tests that need a fresh rate limit or another configuration.
+async function withWeb(extra, fn) {
+  const w = await startServer('web/server.mjs', env(extra));
+  try { return await fn(`http://127.0.0.1:${w.port}`); } finally { w.kill(); }
+}
 
 before(async () => {
   agent = http.createServer((req, res) => {
@@ -13,22 +24,28 @@ before(async () => {
     res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
   });
   await new Promise(r => agent.listen(0, '127.0.0.1', r));
-  web = await startServer('web/server.mjs', {
-    PORT: '0', DASHCALL_PASSWORD: PASSWORD, DASHCALL_SECRET: 's'.repeat(40),
-    DASHCALL_AGENT_URL: `http://127.0.0.1:${agent.address().port}`, DASHCALL_AGENT_TOKEN: TOKEN, DASHCALL_TRUST_PROXY: '1',
-  });
+  web = await startServer('web/server.mjs', env());
   base = `http://127.0.0.1:${web.port}`;
 });
 after(() => { web?.kill(); agent?.close(); });
 
-const login = (password, ip = '10.0.0.1') => fetch(base + '/login', {
-  method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ password }),
+const postLogin = (b, body, ip) => fetch(b + '/login', {
+  method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body),
 });
+const login = (password, ip = '10.0.0.1') => postLogin(base, { password }, ip);
 const cookieOf = r => r.headers.get('set-cookie').split(';')[0];
-async function assertError(r, status, code) {
-  assert.equal(r.status, status);
+const health = (b, cookie) => fetch(b + '/api/health', { headers: { cookie } });
+// Mirrors the session token of web/server.mjs, `<issued>.<expires>.<signature>`, to fake old and expired logins.
+const hmac = v => createHmac('sha256', SECRET).update(v).digest('base64url');
+function tokenCookie(iat, exp, { epoch = '0' } = {}) {
+  const creds = hmac(`pw:${PASSWORD}\0totp:\0epoch:${epoch}`);
+  return `dashcall=${iat}.${exp}.${hmac(`${iat}.${exp}.${creds}`)}`;
+}
+const now = () => Math.floor(Date.now() / 1000), DAY = 86400;
+async function assertError(r, status, code, what) {
+  assert.equal(r.status, status, what);
   const d = await r.json();
-  assert.equal(d.code, code);
+  assert.equal(d.code, code, what);
   assert.equal(typeof d.error, 'string');
 }
 
@@ -139,4 +156,100 @@ test('logout is a same-origin POST that clears the cookie', async () => {
   const r = await fetch(base + '/logout', { method: 'POST' });
   assert.equal(r.status, 204);
   assert.match(r.headers.get('set-cookie'), /^dashcall=; Max-Age=0; Path=\/; HttpOnly; Secure; SameSite=Lax/);
+});
+
+test('a login lasts 30 days and is renewed at most once a day while the device is used', async () => {
+  const r = await login(PASSWORD);
+  assert.match(r.headers.get('set-cookie'), /^dashcall=\d+\.\d+\.[\w-]{43}; Max-Age=2592000; Path=\/; HttpOnly; Secure; SameSite=Lax$/);
+  assert.equal((await health(base, cookieOf(r))).headers.get('set-cookie'), null, 'a fresh cookie is not renewed');
+
+  const old = tokenCookie(now() - 2 * DAY, now() + 28 * DAY);
+  for (const path of ['/api/health', '/']) {
+    const res = await fetch(base + path, { headers: { cookie: old } });
+    assert.equal(res.status, 200, path);
+    assert.match(res.headers.get('set-cookie') || '', /^dashcall=\d+\.\d+\.[\w-]{43}; Max-Age=2592000; Path=\/; HttpOnly; Secure; SameSite=Lax$/, path);
+    const fresh = cookieOf(res);
+    assert.ok(Math.abs(Number(fresh.split(/[=.]/)[1]) - now()) < 5, 'the new cookie is issued now');
+    assert.equal((await health(base, fresh)).status, 200);
+  }
+});
+
+test('expired, too old, old-format and revoked session tokens are refused', async () => {
+  const refused = {
+    expired: tokenCookie(now() - 2 * DAY, now() - 1),
+    'older than DASHCALL_SESSION_DAYS': tokenCookie(now() - 31 * DAY, now() + DAY),
+    'other epoch': tokenCookie(now(), now() + DAY, { epoch: '1' }),
+    // the one-year format from before sliding sessions: `<expires>.<signature>`
+    'old format': (exp => `dashcall=${exp}.${hmac(`${exp}.${hmac('pw:' + PASSWORD)}`)}`)(now() + 300 * DAY),
+  };
+  for (const [what, cookie] of Object.entries(refused)) await assertError(await health(base, cookie), 401, 'login_required', what);
+  assert.equal((await health(base, tokenCookie(now() - 29 * DAY, now() + DAY))).status, 200, 'a 29-day-old token is still fine');
+});
+
+test('changing DASHCALL_SESSION_EPOCH signs out every device; DASHCALL_SESSION_DAYS shortens existing logins', async () => {
+  const before = cookieOf(await login(PASSWORD));
+  await withWeb({ DASHCALL_SESSION_EPOCH: '1', DASHCALL_SESSION_DAYS: '7' }, async b => {
+    await assertError(await health(b, before), 401, 'login_required');
+    const r = await postLogin(b, { password: PASSWORD }, '10.0.0.2');
+    assert.match(r.headers.get('set-cookie'), /Max-Age=604800;/);
+    assert.equal((await health(b, cookieOf(r))).status, 200);
+    await assertError(await health(base, cookieOf(r)), 401, 'login_required');
+    await assertError(await health(b, tokenCookie(now() - 8 * DAY, now() + 22 * DAY, { epoch: '1' })), 401, 'login_required');
+  });
+});
+
+test('invalid session or TOTP settings stop the web app', async () => {
+  const bad = { DASHCALL_SESSION_DAYS: ['0', '-1', 'forever', '500'], DASHCALL_TOTP_SECRET: ['not base32!', 'ABCDEFGH'] };
+  for (const [key, values] of Object.entries(bad)) {
+    for (const v of values) await assert.rejects(startServer('web/server.mjs', env({ [key]: v })), new RegExp(`exited \\(1\\).*${key}`, 's'), `${key}=${v}`);
+  }
+});
+
+test('failed logins are also limited across all IPs, so many IPs cannot share the guessing', async () => {
+  await withWeb({}, async b => {
+    for (let i = 0; i < 31; i++) assert.equal((await postLogin(b, { password: PASSWORD }, '10.5.0.1')).status, 200, 'successful logins do not count');
+    const cookie = cookieOf(await postLogin(b, { password: PASSWORD }, '10.5.0.1'));
+    const statuses = (await Promise.all(Array.from({ length: 40 }, (_, i) => postLogin(b, { password: 'wrong' }, `10.6.0.${i}`)))).map(r => r.status);
+    assert.equal(statuses.filter(s => s === 401).length, 30);
+    assert.equal(statuses.filter(s => s === 429).length, 10);
+    await assertError(await postLogin(b, { password: PASSWORD }, '10.6.1.1'), 429, 'rate_limited');
+    assert.equal((await health(b, cookie)).status, 200, 'devices that are logged in keep working');
+  });
+});
+
+test('with DASHCALL_TOTP_SECRET, login needs a one-time code that works only once', async () => {
+  const key = Buffer.from('a 20-byte test key!!'), ip = '10.8.0.1';
+  assert.deepEqual(await (await fetch(base + '/login/config')).json(), { totp: false });
+  await withWeb({ DASHCALL_TOTP_SECRET: base32Encode(key).toLowerCase() }, async b => {
+    assert.deepEqual(await (await fetch(b + '/login/config')).json(), { totp: true });
+    const t0 = Math.floor(Date.now() / 1000 / STEP), code = hotp(key, t0);
+    // a code that is valid at none of the steps this test can run in
+    const valid = [-1, 0, 1, 2].map(d => hotp(key, t0 + d));
+    let n = 0; while (valid.includes(String(n).padStart(6, '0'))) n++;
+    const wrong = String(n).padStart(6, '0');
+    const as = body => postLogin(b, body, ip);
+
+    // the same answer whichever part is wrong, and a wrong password doesn't use up the code
+    await assertError(await as({ password: 'wrong', code }), 401, 'bad_login');
+    await assertError(await as({ password: PASSWORD }), 401, 'bad_login');
+    await assertError(await as({ password: PASSWORD, code: wrong }), 401, 'bad_login');
+    const ok = await as({ password: PASSWORD, code });
+    assert.equal(ok.status, 200);
+    assert.equal((await health(b, cookieOf(ok))).status, 200);
+
+    await assertError(await as({ password: PASSWORD, code }), 401, 'code_used');
+    const next = hotp(key, t0 + 1);
+    assert.equal((await as({ password: PASSWORD, code: `${next.slice(0, 3)} ${next.slice(3)}` })).status, 200, 'the next code, typed with a space');
+    await assertError(await as({ password: 'wrong', code }), 401, 'code_used');
+
+    await assertError(await health(b, cookieOf(await login(PASSWORD))), 401, 'login_required', 'turning on 2FA signs out older logins');
+    // one-time-code failures count toward the rate limit: 5 so far from this IP, 10 allowed
+    for (let i = 0; i < 5; i++) await assertError(await as({ password: PASSWORD, code: wrong }), 401, 'bad_login');
+    await assertError(await as({ password: PASSWORD, code: hotp(key, t0 + 2) }), 429, 'rate_limited');
+  });
+});
+
+test('the login page has a hidden one-time-code field for two-factor login', async () => {
+  const html = await (await fetch(base + '/')).text();
+  assert.match(html, /<input id="code"[^>]*inputmode="numeric"[^>]*autocomplete="one-time-code"[^>]*hidden>/);
 });

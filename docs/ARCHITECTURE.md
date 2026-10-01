@@ -18,7 +18,7 @@ Dashcall has four parts. None of them has npm dependencies.
 
 | Part | Files | Runs on | Job |
 | --- | --- | --- | --- |
-| **Web app** | `web/server.mjs`, `web/public/` | Any server (Docker image `node:22-alpine`) | Password login, signed cookie, security headers, serves the single-page app, forwards `/api/*` to the agent with the bearer token. Holds no state apart from the login rate limit. |
+| **Web app** | `web/server.mjs`, `web/totp.mjs`, `web/public/` | Any server (Docker image `node:22-alpine`) | Password login (optionally with one-time codes), signed cookie, security headers, serves the single-page app, forwards `/api/*` to the agent with the bearer token. Holds no state apart from the login rate limits and the last used one-time code (in memory). |
 | **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/stt-text.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
 | **Dispatcher** | `dispatcher/CLAUDE.md`, `agent/bin/dashcall` | Spawned by the agent | A headless `claude -p` per question that works out what the user means and acts through the `dashcall` CLI, the only command it is allowed to run. |
 | **TTS helper** | `tts/speak.py` | Spawned by the agent | Calls edge-tts and returns MP3 audio plus word timings for synced subtitles. |
@@ -221,10 +221,12 @@ no checks. It is unsafe; use it only to rule out the permission setup while debu
 
 ## Security model, briefly
 
-- **Perimeter:** the web login. Cookies are HMAC-signed with `DASHCALL_SECRET` and include a hash of the password,
-  so changing the password invalidates all of them. They are HttpOnly, `Secure` and `SameSite=Lax`, and last one
-  year. Logins are limited to 10 attempts per 15 minutes per IP. An attempt is counted before the request body is
-  read, so parallel requests can't slip past the limit.
+- **Perimeter:** the web login, with optional one-time codes (RFC 6238, `web/totp.mjs`; each code is accepted once).
+  Cookies carry their issue and expiry time, are HMAC-signed with `DASHCALL_SECRET` and also cover the password, the
+  TOTP secret and `DASHCALL_SESSION_EPOCH`, so changing any of these invalidates all of them ("sign out everywhere").
+  They are HttpOnly, `Secure` and `SameSite=Lax`, last `DASHCALL_SESSION_DAYS` (30) days and are renewed once a day
+  while the device is used. Failed logins are limited to 10 per IP and 30 across all IPs per 15 minutes. An attempt
+  is counted before the request body is read, so parallel requests can't slip past either limit.
 - **CSRF:** non-GET API calls and the login must be same-origin (checked with `Sec-Fetch-Site` and `Origin` against
   `Host`).
 - **Headers:** a strict CSP without inline scripts, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, and
