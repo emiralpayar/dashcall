@@ -18,6 +18,8 @@ export const config = {
   bind: env('DASHCALL_BIND') || '127.0.0.1',
   port: Number(env('DASHCALL_PORT') || 7420),
   dispatchModel: env('DASHCALL_DISPATCH_MODEL') || 'sonnet',
+  // UNSAFE escape hatch: run the dispatcher with --dangerously-skip-permissions instead of "dashcall commands only".
+  dispatchUnrestricted: env('DASHCALL_DISPATCH_UNRESTRICTED') === '1',
   // Used when a request doesn't say which language the user speaks.
   defaultLanguage: LANGUAGES.includes(env('DASHCALL_DEFAULT_LANGUAGE')) ? env('DASHCALL_DEFAULT_LANGUAGE') : 'en',
   // Typed into a new herdr pane to start a Claude Code session.

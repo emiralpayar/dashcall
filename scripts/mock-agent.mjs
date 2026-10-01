@@ -208,8 +208,8 @@ function work(s, reply) {
 }
 
 const jobs = new Map();
-function ask(text, conversationId, lang) {
-  const job = { id: randomUUID(), status: 'running', started: Date.now(), lang };
+function ask(text, conversationId, lang, requestId) {
+  const job = { id: randomUUID(), status: 'running', started: Date.now(), lang, requestId };
   jobs.set(job.id, job);
   setTimeout(() => {
     const r = REPLIES.find(x => x.re.test(text));
@@ -220,6 +220,8 @@ function ask(text, conversationId, lang) {
   }, 1500).unref();
   return job;
 }
+// what POST /api/ask and GET /api/ask/:id return, as in the real agent (no queue or errors here, so no queued/detail)
+const jobView = j => ({ id: j.id, status: j.status, lang: j.lang, reply: j.reply, conversationId: j.conversationId, notificationId: j.notificationId, elapsed: Date.now() - j.started });
 
 // ---------- HTTP ----------
 async function json(req) {
@@ -273,13 +275,15 @@ const routes = [
   ['POST', /^\/api\/ask$/, (req, b) => {
     const text = requireText(b.text);
     if (b.conversationId != null && !/^[0-9a-f-]{36}$/i.test(b.conversationId)) throw httpError(400, 'bad_conversation_id', 'bad conversationId');
-    const j = ask(text, b.conversationId, pickLang(b.lang, LANG));
-    return { id: j.id, status: j.status };
+    if (b.requestId != null && (typeof b.requestId !== 'string' || !/^[\w-]{1,64}$/.test(b.requestId))) throw httpError(400, 'bad_request_id', 'bad requestId');
+    // a retried POST with the same requestId gets the job it already started, finished or not
+    const j = (b.requestId && [...jobs.values()].find(x => x.requestId === b.requestId)) || ask(text, b.conversationId, pickLang(b.lang, LANG), b.requestId);
+    return jobView(j);
   }],
   ['GET', /^\/api\/ask\/([\w-]+)$/, (req, b, m) => {
     const j = jobs.get(m[1]);
     if (!j) throw httpError(404, 'unknown_job', 'unknown job');
-    return { id: j.id, status: j.status, lang: j.lang, reply: j.reply, conversationId: j.conversationId, notificationId: j.notificationId, elapsed: Date.now() - j.started };
+    return jobView(j);
   }],
   // No neural voices in the demo: the app falls back to the browser's own speech synthesis.
   ['POST', /^\/api\/speak$/, () => {

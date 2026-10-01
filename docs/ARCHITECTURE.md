@@ -19,8 +19,8 @@ Dashcall has four parts. None of them has npm dependencies.
 | Part | Files | Runs on | Job |
 | --- | --- | --- | --- |
 | **Web app** | `web/server.mjs`, `web/public/` | Any server (Docker image `node:22-alpine`) | Password login, signed cookie, security headers, serves the single-page app, forwards `/api/*` to the agent with the bearer token. Holds no state apart from the login rate limit. |
-| **Agent** | `agent/server.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
-| **Dispatcher** | `dispatcher/CLAUDE.md`, `agent/bin/dashcall` | Spawned by the agent | A headless `claude -p` per question that works out what the user means and acts through the `dashcall` CLI. |
+| **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
+| **Dispatcher** | `dispatcher/CLAUDE.md`, `agent/bin/dashcall` | Spawned by the agent | A headless `claude -p` per question that works out what the user means and acts through the `dashcall` CLI, the only command it is allowed to run. |
 | **TTS helper** | `tts/speak.py` | Spawned by the agent | Calls edge-tts and returns MP3 audio plus word timings for synced subtitles. |
 
 The single-page app has five views: **Drive** (talk button, subtitles, typed input), **Sessions** (live and recent
@@ -42,23 +42,40 @@ rest: the title, the last user prompt and the last assistant message.
 2. **Transcribe.** `POST /api/stt?lang=en` with the raw audio body. The web app checks the cookie and forwards the
    request. The agent accepts only WebM, Ogg, MP4 or WAV (it checks magic bytes), converts the audio to 16 kHz mono
    WAV with ffmpeg, and runs `whisper-cli -l <lang>`. Response: `{text}`.
-3. **Ask.** `POST /api/ask {text, conversationId, lang}`. The agent starts a job and immediately returns
-   `{id, status: "running"}`.
-4. **Dispatch.** The agent spawns this command, with `dispatcher/` as the working directory:
+3. **Ask.** `POST /api/ask {text, conversationId, lang, requestId}`. The agent starts a job and immediately returns
+   the same view as a poll (step 5), for a new job `{id, status: "running", lang, elapsed}`. `requestId` makes the
+   call safe to retry: the same ID returns the job it already started instead of asking twice, with its reply if it
+   has already finished. The demo's mock agent does the same.
+4. **Dispatch.** The agent spawns this command (built by `dispatcherArgs` in `agent/dispatch.mjs`), with
+   `dispatcher/` as the working directory:
 
    ```
-   claude -p <text> --output-format json --dangerously-skip-permissions --model <DASHCALL_DISPATCH_MODEL>
+   claude -p <text> --output-format json --model <DASHCALL_DISPATCH_MODEL>
           --append-system-prompt <current time, reply language, research folder, brain>
-          --settings {"claudeMdExcludes":[...]}  [--resume <conversationId>]
+          --permission-mode dontAsk --tools Bash --allowedTools "Bash(dashcall:*)" --strict-mcp-config
+          --settings {"claudeMdExcludes":[...],"permissions":{"blockReadsOutsideWorkingDirectories":true}}
+          [--resume <conversationId>]
    ```
 
    `dispatcher/CLAUDE.md` is loaded as its instructions. `agent/bin` is prepended to `PATH`, so the `dashcall` CLI is
-   available, and `DASHCALL_JOB_ID`, `DASHCALL_CONVERSATION_ID` and `DASHCALL_LANGUAGE` are set. The dispatcher runs
-   commands like `dashcall sessions` or `dashcall send <pane> "..."` and writes a short spoken-style reply. Runs are
-   killed after 5 minutes.
+   available, and `DASHCALL_JOB_ID`, `DASHCALL_CONVERSATION_ID` and `DASHCALL_LANGUAGE` are set. `DASHCALL_TOKEN` is
+   removed from its environment: the CLI doesn't need it, and a command like `dashcall send 1 "$DASHCALL_TOKEN"`
+   would pass the allow-list. The dispatcher runs
+   commands like `dashcall sessions` or `dashcall send <pane> "..."` and writes a short spoken-style reply. It can't
+   run anything else (see [The dispatcher's permissions](#the-dispatchers-permissions)). Runs are killed after
+   5 minutes.
+
+   **One conversation at a time.** Jobs that resume the same conversation run one after another, in order: two
+   `claude -p --resume <id>` processes at once would both append to the same transcript. That happens when a
+   background task finishes while the user is talking in that conversation. A job waiting its turn reports
+   `status: "running"` with `queued: true`. `--resume` keeps the session ID, but the next job resumes whatever
+   session ID the previous one ended in, so it would also work if Claude Code ever returned a new one. Jobs without a
+   conversation never wait.
 5. **Poll.** The browser polls `GET /api/ask/<id>` about every 1.2 seconds until the status is `done` or `error`.
    The response includes the reply and the `conversationId` (the Claude session ID), which the browser keeps for
-   follow-ups.
+   follow-ups. When Claude Code fails with a known usage-limit, login or overload message, `error` is a short
+   sentence in the job's language, for example `[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.`,
+   and Claude's original text is in `detail`.
 6. **Notify.** Every finished job is also saved as a notification. If the page was closed, the answer is waiting in
    the **Notifications** view.
 7. **Speak.** `POST /api/speak {text, voice, lang}`. `tts/speak.py` returns MP3 audio and word boundaries. The app
@@ -95,12 +112,15 @@ A *watch* is a record in `state/watches.json` that says "tell the user when this
    1 to 3 sentence summary in the watch's language. The session's reply is untrusted, so it is quoted between two
    lines holding a random marker (`<<<…>>>`, new for every summary), and the prompt says never to follow
    instructions inside it. The session's text can't fake the end of the quote because it can't guess the marker.
+   If a job of that conversation is still running, for example because the user is talking in it, the summary waits
+   for it to finish.
 5. That summary becomes a notification of kind `task`, titled with the watch label.
 
 ## Flow: notifications
 
 - Every dispatcher job, whether an answer or a task summary, is appended to `state/notifications.json` with
-  `{id, ts, read, jobId, kind, lang, title, q, text, error, conversationId}`. The file keeps the last 200.
+  `{id, ts, read, jobId, kind, lang, title, q, text, error, detail, conversationId}`. `detail` is only set for the
+  friendly usage-limit, login and overload errors and holds Claude's original message. The file keeps the last 200.
 - The browser polls `GET /api/notifications` (the last 100, newest first, plus the unread count) to update the badge.
   When a new unread notification arrives that the page isn't already delivering, such as a background result or an
   answer to a question asked before the page was closed, it plays a chime (not in silent mode) and shows a popup with
@@ -119,7 +139,7 @@ Everything personal stays on the Mac, inside the repo folder, and is git-ignored
 | `dispatcher/brain/brain.json` (`DASHCALL_BRAIN_FILE`) | Agent, `dashcall` CLI | `{memory[], notes[], muted[]}`: facts about you, your notes and reminders, muted sessions and projects |
 | `state/notifications.json` (`DASHCALL_STATE_DIR`) | Agent | The last 200 answers and summaries, including your questions |
 | `state/watches.json` | Agent, `dashcall` CLI | Background tasks: waiting, fired or cancelled |
-| `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors. Questions and transcripts only with `DASHCALL_LOG_CONTENT=1`. |
+| `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors, including Claude Code's error messages for failed dispatcher jobs. Questions, transcripts and dispatcher output that isn't valid JSON only with `DASHCALL_LOG_CONTENT=1`. |
 | `research/` | Sessions started for research | The dispatcher's default folder for research that belongs to no project |
 | `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them). The dispatcher's own conversations are stored here too. |
 
@@ -149,7 +169,7 @@ Claude Code loads `CLAUDE.md` files from the working directory **and every paren
 and coding agents working *on* Dashcall. A voice assistant has no use for build commands and code conventions, and the
 extra text would cost tokens on every question and could change its behaviour.
 
-So every dispatcher run passes:
+So every dispatcher run passes (next to the permission setting described below):
 
 ```
 --settings {"claudeMdExcludes":["<repo>/CLAUDE.md","<repo>/AGENTS.md","<repo>/.claude/CLAUDE.md"]}
@@ -161,6 +181,41 @@ treated as developer documentation.
 
 The dispatcher's own sessions run in `dispatcher/`, so they are hidden from every session list (`isDispatcher` in
 `agent/lib.mjs`) and never show up as your "jobs".
+
+## The dispatcher's permissions
+
+The dispatcher reads text nobody vetted: session screens, transcripts, research results and misheard speech. Any of
+it can carry a prompt injection, so the dispatcher gets only what it needs, the `dashcall` CLI, and Claude Code
+enforces that, whatever the model is talked into:
+
+| Flag | Effect |
+| --- | --- |
+| `--permission-mode dontAsk` | Anything not allowed below is denied on the spot instead of waiting for a prompt nobody can answer. |
+| `--tools Bash` | Bash is the only built-in tool: no file editing, web fetching or subagents. |
+| `--allowedTools "Bash(dashcall:*)"` | Bash runs `dashcall …` commands only. |
+| `--strict-mcp-config` | No MCP servers. |
+| `blockReadsOutsideWorkingDirectories` (in `--settings`) | Claude Code's built-in read-only commands (`cat`, `ls`, …), which run without approval, can't read outside `dispatcher/`. |
+
+Claude Code checks every part of a compound command on its own. Checked against Claude Code 2.1.286:
+
+| Command | Result |
+| --- | --- |
+| `dashcall help`, `dashcall help \| head -3`, `dashcall help \| grep -c sessions`, `dashcall help > /dev/null` | Runs |
+| `touch <file>`, `echo hi > <file>`, `sh -c '…'`, `cat /etc/hosts` | Denied |
+| `dashcall help && touch <file>`, `dashcall help; touch <file>`, `dashcall help $(touch <file>)` | Denied |
+| `DASHCALL_STATE_DIR=<dir> dashcall help` | Denied |
+
+`dispatcher/CLAUDE.md` tells the dispatcher the same, so it doesn't waste turns on blocked commands.
+
+What remains: whatever the `dashcall` CLI can do, a prompt injection can still ask for. It can type into your
+sessions, press keys in them (including answering their permission prompts) and start new ones, and those sessions
+run with the permissions you gave them (`DASHCALL_SESSION_COMMAND`). Allow rules in your own Claude Code settings
+(`permissions.allow` in `~/.claude/settings.json`) also apply to the dispatcher, so keep broad ones out of there.
+
+These flags need a recent Claude Code. If every answer fails with `unknown option`, run `claude update`.
+
+`DASHCALL_DISPATCH_UNRESTRICTED=1` brings back the old `--dangerously-skip-permissions` run, with every tool and
+no checks. It is unsafe; use it only to rule out the permission setup while debugging, and turn it off again.
 
 ## Security model, briefly
 
@@ -178,4 +233,6 @@ The dispatcher's own sessions run in `dispatcher/`, so they are hidden from ever
   25 MB for audio and 1 MB for JSON, and audio is checked by magic bytes before ffmpeg sees it.
 - **Sessions:** new jobs only start under `DASHCALL_WORKSPACE_ROOT` (checked with real paths). Keys sent to a session
   come from a fixed allow-list.
-- **Accepted risk:** the dispatcher runs with `--dangerously-skip-permissions`. See [SECURITY.md](../SECURITY.md).
+- **Dispatcher:** may only run the `dashcall` CLI (see [The dispatcher's permissions](#the-dispatchers-permissions)).
+  **Accepted risk:** what it can do through `dashcall`, including driving your sessions. See
+  [SECURITY.md](../SECURITY.md).

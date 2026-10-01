@@ -38,6 +38,7 @@ translated message for known codes (`errors.<code>` in `web/public/i18n.js`) and
 | `key_required` | 400 | `key` is missing or empty |
 | `bad_keys` | 400 | `keys` is not an array of allowed key names |
 | `bad_conversation_id` | 400 | `conversationId` is not a UUID |
+| `bad_request_id` | 400 | `requestId` is not 1 to 64 letters, digits, `_` or `-` |
 | `unsupported_audio` | 415 | The audio is not WebM, Ogg, MP4/M4A or WAV |
 | `unknown_job` | 404 | Unknown or expired dispatcher job (jobs are kept for 1 hour) |
 | `folder_not_found` | 400 | `cwd` is missing or not a directory |
@@ -128,11 +129,18 @@ and Downloads are skipped, as are hidden folders. Returns `{"dirs": [{"name", "p
 
 #### `POST /api/ask`
 
-Body `{"text": "what are my sessions doing?", "conversationId": "…", "lang": "en"}`. Only `text` is required.
-`conversationId` must be the UUID returned by an earlier job; omit it to start a new conversation.
+Body `{"text": "what are my sessions doing?", "conversationId": "…", "lang": "en", "requestId": "…"}`. Only `text`
+is required. `conversationId` must be the UUID returned by an earlier job; omit it to start a new conversation.
 
-Starts a dispatcher job and returns immediately: `{"id": "<job id>", "status": "running"}`. Errors: `text_required`,
-`bad_conversation_id`.
+`requestId` (optional, 1 to 64 letters, digits, `_` or `-`, for example a random UUID) makes the call safe to retry.
+If a job with the same `requestId` is still known (jobs are kept for 1 hour), the agent returns that job instead of
+starting another one, whatever its status. Use a new ID for every question.
+
+Starts a dispatcher job and returns immediately with the same fields as [`GET /api/ask/:id`](#get-apiaskid), for a
+new job `{"id": "<job id>", "status": "running", "lang": "en", "elapsed": 0}`. A retried call can find its job
+already `done` or `error`, with the reply or error included, so read the response like a poll result. Jobs of one
+conversation run one at a time, in order; a job that has to wait for an earlier one also has `"queued": true`.
+Errors: `text_required`, `bad_conversation_id`, `bad_request_id`.
 
 #### `GET /api/ask/:id`
 
@@ -144,8 +152,22 @@ Poll a job:
 ```
 
 `status` is `running`, `done` or `error`. Fields without a value are left out: while the job is running there is no
-`reply`, `conversationId` or `notificationId`, and `error` (a short reason) is only present when `status` is `error`. Jobs time out after 5 minutes and are forgotten after 1 hour. Errors:
-`unknown_job`.
+`reply`, `conversationId` or `notificationId`, and `error` (a short reason) is only present when `status` is `error`.
+`queued: true` means the job is `running` but still waiting for an earlier job of the same conversation; keep polling.
+Jobs time out 5 minutes after they start running and are forgotten after 1 hour. Errors: `unknown_job`.
+
+When Claude Code fails with a usage limit, a logged-out account or an overload, `error` is a short sentence in the
+job's `lang`, ready to be spoken, and `detail` holds Claude's original text:
+
+```json
+{ "id": "…", "status": "error", "lang": "tr",
+  "error": "[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.",
+  "detail": "You've hit your session limit · resets 2pm (Europe/Istanbul)", "notificationId": "…", "elapsed": 2310 }
+```
+
+The reset time is kept when Claude gives one. Turkish text may contain the `[[written|spoken]]` pronunciation
+markup, like dispatcher replies. Other failures have no `detail`, and `error` is Claude's message or the process
+output.
 
 ### Speech
 
@@ -193,7 +215,9 @@ The last 100 notifications, newest first, and the unread count:
   "title": "Research X", "q": "Research X", "text": "…", "error": false, "conversationId": "…" } ], "unread": 1 }
 ```
 
-`kind` is `answer` (a reply to `/api/ask`) or `task` (a background task summary).
+`kind` is `answer` (a reply to `/api/ask`) or `task` (a background task summary). A failed job has `error: true`;
+for the usage-limit, login and overload failures described under [`GET /api/ask/:id`](#get-apiaskid), `text` is
+the short sentence and `detail` Claude's original message.
 
 #### `POST /api/notifications/read`
 

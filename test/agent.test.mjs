@@ -2,12 +2,12 @@
 // and checks auth, input validation, the error format and language handling.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { startServer, tempDir } from './helpers.mjs';
 
 const TOKEN = 't'.repeat(40);
-let agent, base;
+let agent, base, dir, logs = '';
 
 // Tiny shell scripts standing in for the real tools.
 function fakeBin(dir, name, body) {
@@ -17,13 +17,27 @@ function fakeBin(dir, name, body) {
 }
 
 before(async () => {
-  const dir = tempDir();
+  dir = tempDir();
   agent = await startServer('agent/server.mjs', {
     DASHCALL_TOKEN: TOKEN, DASHCALL_PORT: '0', DASHCALL_BIND: '127.0.0.1', DASHCALL_DEFAULT_LANGUAGE: 'en',
     DASHCALL_STATE_DIR: path.join(dir, 'state'), DASHCALL_BRAIN_FILE: path.join(dir, 'brain.json'), DASHCALL_HERDR_BIN: '/nonexistent/herdr',
+    FAKE_DIR: dir, // the fake claude logs every prompt to calls.txt
     // echoes the reply language it was given, via the system prompt and the environment
     // "utf8test" replies "şğı" with a multi-byte character split across two writes
-    DASHCALL_CLAUDE_BIN: fakeBin(dir, 'claude', `L=none
+    // "argsdump" saves its arguments and DASHCALL_TOKEN; "limittest" / "failtest" fail like Claude Code does;
+    // "partialtest" stops in the middle of its JSON output;
+    // "queuetest" logs which session it resumes, takes a while and always ends in session 2222…
+    DASHCALL_CLAUDE_BIN: fakeBin(dir, 'claude', `L=none R= P=
+printf '%s\\n' "$2" >> "$FAKE_DIR/calls.txt"
+for a; do [ "$P" = --resume ] && R=$a; P=$a; done
+case "$2" in
+  *argsdump*) for a; do printf '%s\\0' "$a"; done > "$FAKE_DIR/args.bin"; printf 'token=%s' "$DASHCALL_TOKEN" > "$FAKE_DIR/token.txt";;
+  *limittest*) printf '{"type":"result","is_error":true,"result":"You\\047ve hit your session limit · resets 2pm (Europe/Istanbul)","session_id":"0f8fad5b-d9cb-469f-a165-70867728950e"}'; exit 0;;
+  *partialtest*) printf '{"result":"half of a private reply'; exit 0;;
+  *failtest*) printf '{"type":"result","is_error":true,"result":"Prompt is too long","session_id":"0f8fad5b-d9cb-469f-a165-70867728950e"}'; exit 0;;
+  *queuetest*) echo "start $R" >> "$FAKE_DIR/queue.txt"; sleep 0.6; echo "end $R" >> "$FAKE_DIR/queue.txt"
+    printf '{"result":"ok","session_id":"22222222-2222-4222-8222-222222222222","is_error":false}'; exit 0;;
+esac
 case "$2" in *utf8test*) printf '{"result":"\\305'; sleep 0.3; printf '\\237\\304\\237\\304\\261","session_id":"0f8fad5b-d9cb-469f-a165-70867728950e","is_error":false}'; exit 0;; esac
 for a; do case "$a" in *"Reply language: Turkish"*) L=tr;; *"Reply language: English"*) L=en;; esac; done
 printf '{"result":"prompt=%s env=%s","session_id":"0f8fad5b-d9cb-469f-a165-70867728950e","is_error":false}' "$L" "$DASHCALL_LANGUAGE"`),
@@ -32,6 +46,7 @@ printf '{"result":"prompt=%s env=%s","session_id":"0f8fad5b-d9cb-469f-a165-70867
     DASHCALL_TTS_PYTHON: fakeBin(dir, 'python', 'cat >/dev/null; printf \'{"audio":"AA==","words":[]}\''),
   });
   base = `http://127.0.0.1:${agent.port}`;
+  agent.stdout.on('data', d => logs += d);
 });
 after(() => agent?.kill());
 
@@ -101,14 +116,15 @@ test('speak picks a voice of the requested language', async () => {
   assert.equal(await speak({ voice: 'evil; rm -rf /' }), 'en-US-AvaNeural');
 });
 
-async function ask(data) {
-  let j = await (await post('/api/ask', data)).json();
+async function poll(j) {
   for (let i = 0; i < 100 && j.status === 'running'; i++) {
     await new Promise(r => setTimeout(r, 50));
     j = await (await call('/api/ask/' + j.id)).json();
   }
   return j;
 }
+const ask = async data => poll(await (await post('/api/ask', data)).json());
+const notification = async id => (await (await call('/api/notifications')).json()).items.find(x => x.id === id);
 
 test('ask runs the dispatcher in the requested language and stores a notification', async () => {
   const tr = await ask({ text: 'merhaba', lang: 'tr' });
@@ -121,6 +137,78 @@ test('ask runs the dispatcher in the requested language and stores a notificatio
   const n = items.find(x => x.id === tr.notificationId);
   assert.equal(n.lang, 'tr');
   assert.equal(n.kind, 'answer');
+});
+
+test('the dispatcher runs with an allow-list, not --dangerously-skip-permissions', async () => {
+  assert.equal((await ask({ text: 'argsdump', lang: 'en' })).status, 'done');
+  const args = readFileSync(path.join(dir, 'args.bin'), 'utf8').split('\0');
+  assert.deepEqual(args.slice(0, 2), ['-p', 'argsdump']);
+  assert.ok(!args.includes('--dangerously-skip-permissions'));
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk');
+  assert.equal(args[args.indexOf('--allowedTools') + 1], 'Bash(dashcall:*)');
+  // the dashcall CLI doesn't need the agent's token, so a prompt injection can't put it into `dashcall send`
+  assert.equal(readFileSync(path.join(dir, 'token.txt'), 'utf8'), 'token=');
+});
+
+test('a repeated requestId returns the first job instead of asking again', async () => {
+  const body = { text: 'idempotent question', lang: 'en', requestId: 'req-1' };
+  const a = await (await post('/api/ask', body)).json();
+  assert.equal((await (await post('/api/ask', body)).json()).id, a.id);
+  const done = await poll(a);
+  assert.equal(done.status, 'done');
+  // a retry that finds the job finished gets the reply right away, like a poll would
+  const again = await (await post('/api/ask', body)).json();
+  assert.deepEqual([again.id, again.status, again.reply, again.conversationId, again.notificationId],
+    [a.id, 'done', done.reply, done.conversationId, done.notificationId]);
+  assert.notEqual((await ask({ ...body, requestId: 'req-2' })).id, a.id);
+  assert.equal(readFileSync(path.join(dir, 'calls.txt'), 'utf8').split('\n').filter(l => l === body.text).length, 2);
+  for (const requestId of ['has space', 'x'.repeat(65), 42, '']) {
+    await assertError(await post('/api/ask', { text: 'x', requestId }), 400, 'bad_request_id');
+  }
+});
+
+test('jobs of one conversation run one at a time and resume its latest session', async () => {
+  const conv = '11111111-1111-4111-8111-111111111111', next = '22222222-2222-4222-8222-222222222222';
+  const a = await (await post('/api/ask', { text: 'queuetest a', conversationId: conv })).json();
+  const b = await (await post('/api/ask', { text: 'queuetest b', conversationId: conv })).json();
+  assert.equal(a.queued, undefined);
+  assert.deepEqual([b.status, b.queued], ['running', true]);
+  assert.equal((await (await call('/api/ask/' + b.id)).json()).queued, true); // the web client keeps polling
+  const [ra, rb] = await Promise.all([poll(a), poll(b)]);
+  assert.deepEqual([ra.status, rb.status, rb.conversationId, rb.queued], ['done', 'done', next, undefined]);
+  assert.deepEqual(readFileSync(path.join(dir, 'queue.txt'), 'utf8').trim().split('\n'), [`start ${conv}`, `end ${conv}`, `start ${next}`, `end ${next}`]);
+});
+
+test('a Claude usage limit is reported in the job language; the raw text stays in detail', async () => {
+  const j = await ask({ text: 'limittest', lang: 'tr' });
+  assert.equal(j.status, 'error');
+  assert.equal(j.error, '[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.');
+  assert.equal(j.detail, 'You\'ve hit your session limit · resets 2pm (Europe/Istanbul)');
+  const n = await notification(j.notificationId);
+  assert.deepEqual([n.text, n.detail, n.error], [j.error, j.detail, true]);
+  // anything else keeps the generic failure text
+  const f = await ask({ text: 'failtest', lang: 'en' });
+  assert.deepEqual([f.error, f.detail], ['Prompt is too long', undefined]);
+  assert.equal((await notification(f.notificationId)).text, 'Something went wrong: Prompt is too long');
+});
+
+test('a job that fails before Claude starts ends as an error and does not block its conversation', async () => {
+  const conv = '33333333-3333-4333-8333-333333333333', file = path.join(dir, 'brain.json');
+  const saved = existsSync(file) ? readFileSync(file) : null;
+  writeFileSync(file, '{"notes": null}'); // valid JSON of the wrong shape: building the system prompt throws
+  let j;
+  try { j = await ask({ text: 'hello', conversationId: conv }); } finally { saved ? writeFileSync(file, saved) : rmSync(file); }
+  assert.equal(j.status, 'error');
+  assert.equal((await notification(j.notificationId)).error, true);
+  assert.equal((await ask({ text: 'hello again', conversationId: conv })).status, 'done');
+});
+
+test('output that is not JSON stays out of the log unless DASHCALL_LOG_CONTENT=1', async () => {
+  const j = await ask({ text: 'partialtest', lang: 'en' });
+  assert.equal(j.status, 'error');
+  await new Promise(r => setTimeout(r, 50));
+  assert.match(logs, /dispatcher error exit 0, \d+ chars of output that is not JSON/);
+  assert.doesNotMatch(logs, /private reply/);
 });
 
 test('new sessions are limited to WORKSPACE_ROOT', async () => {
