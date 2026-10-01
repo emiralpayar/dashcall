@@ -88,6 +88,27 @@ rest: the title, the last user prompt and the last assistant message.
 7. **Speak.** `POST /api/speak {text, voice, lang}`. `tts/speak.py` returns MP3 audio and word boundaries. The app
    plays the audio and highlights subtitles word by word. If edge-tts fails, the agent uses macOS `say` with the
    language's voice (no word timings). If `/api/speak` itself fails, the browser uses its own `speechSynthesis`.
+   **Long replies are spoken in segments** (`speechSegments` and `speak` in `web/public/app.js`), so the first
+   sentence plays while the rest is still being synthesized. Without this, the whole reply's audio has to reach the
+   car before anything plays, and that is about 0.55 KB of base64 MP3 per character. Replies of up to 200 characters
+   are still one request. Longer ones are cut into:
+
+   | Segment | Size | Cut at |
+   | --- | --- | --- |
+   | 1 | The first sentence, at least 40 characters | A clause or a space by 160 characters if the sentence is longer |
+   | 2 | Up to 400 characters | The last sentence end after 200 characters, else a clause, else a space |
+   | 3 and later | Up to 600 characters | The same |
+
+   Cuts never fall inside `[[written|spoken]]` markup. Segments 1 and 2 are requested together. After that, the app
+   keeps one segment in flight ahead of the one playing. Segment 2 is kept short because it has only segment 1's
+   playing time to arrive. All segments play one after another on the same `Audio` element, the one a tap unlocked,
+   because a new element could be blocked by autoplay rules in car and iOS browsers. Each segment gets subtitles
+   from its own word timings. The talk button shows *speaking* from the first segment to the end of the last.
+   Stopping (a tap, a new answer) cancels playback and any segment requests still in flight. If a later segment
+   fails, the browser voice reads the rest of the reply from that segment on.
+   Measured on the Mac for a 584-character Turkish reply (edge-tts, median of 15 runs spaced like real use): the
+   whole text took 1.1 s and its first sentence 0.7 s. Both responses then still have to be downloaded: 322 KB
+   against 29 KB, which over a 2 Mbps link is another 1.2 s before the whole reply can start.
    **Silent mode:** the mock agent behind `npm run demo` reports `silent: true` from `/api/health` and answers
    `/api/speak` with `engine: "silent"`. The app then runs the subtitles on a timer and makes no sound at all (no
    audio, no `speechSynthesis`, no chime). `DASHCALL_DEMO_SOUND=1` turns the browser voice back on for the demo.
