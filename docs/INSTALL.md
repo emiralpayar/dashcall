@@ -292,7 +292,8 @@ Use the same port in the reverse proxy below.
 Docker also checks `/healthz` from inside the container every 30 seconds, on the same `PORT` (the `healthcheck` in
 `docker-compose.yml`). After three failed checks in a row, `docker compose ps` shows `(unhealthy)`. Docker only reports
 the status and doesn't restart the container (`restart: unless-stopped` covers crashes), so if it stays unhealthy,
-read `docker compose logs` and run `docker compose restart`.
+read `docker compose logs` and run `docker compose restart`. The check calls `127.0.0.1` inside the container, which
+works with the image's `HOST=0.0.0.0`: leave `HOST` unset in `web/.env`.
 
 **Without Docker:** install Node 22 and run `npm run web` from the repo root. It reads `web/.env` and, like the
 container, is only reachable from the same machine: it listens on `127.0.0.1` unless you set `HOST`. Keep
