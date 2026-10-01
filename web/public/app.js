@@ -90,63 +90,7 @@ const voiceFor = l => { const v = store.get('voice.' + l, l === 'tr' ? store.get
 let voice = voiceFor(getLang());
 
 // ---------- subtitles ----------
-const norm = w => w.toLocaleLowerCase(getLang()).replace(/[^\p{L}\p{N}]/gu, '');
-// Pronunciation markup from the dispatcher: [[written|spoken]] — show `written`, speak `spoken`.
-const MARK = /\[\[([^\]|]+)\|([^\]]+)\]\]/g;
-const plain = t => String(t ?? '').replace(MARK, '$1');
-const spoken = t => String(t ?? '').replace(MARK, '$2');
-// Build display + spoken strings together, with a char map display→spoken so subtitle timing survives respelling.
-function mapText(raw) {
-  let disp = '', say = ''; const map = [];
-  const copy = str => { for (const ch of str) { map.push(say.length); disp += ch; say += ch; } };
-  let last = 0; MARK.lastIndex = 0; let m;
-  while ((m = MARK.exec(raw))) {
-    copy(raw.slice(last, m.index));
-    const s0 = say.length, a = m[1], b = m[2];
-    for (let i = 0; i < a.length; i++) map.push(s0 + Math.floor(i * b.length / a.length));
-    disp += a; say += b; last = m.index + m[0].length;
-  }
-  copy(raw.slice(last));
-  return { disp, say, map };
-}
-const tokensOf = str => [...str.matchAll(/\S+/g)].map(m => ({ text: m[0], at: m.index }));
-
-// Split text into short subtitle chunks (≤ ~7 words / 42 chars, breaking at sentence punctuation),
-// each with a start time aligned to the TTS word timings when available.
-function buildChunks(raw, words, duration) {
-  const { disp, say, map } = mapText(String(raw).replace(/[*_`#>]/g, ''));
-  const dTok = tokensOf(disp), sTok = tokensOf(say);
-  if (!dTok.length) return [];
-  // align spoken tokens to timed words (greedy, small lookahead)
-  const times = new Array(sTok.length).fill(null);
-  let j = 0;
-  sTok.forEach((tok, i) => {
-    const n = norm(tok.text); if (!n || !words?.length) return;
-    for (let k = j; k < Math.min(j + 4, words.length); k++) {
-      const w = norm(words[k].w);
-      if (w && (n === w || n.startsWith(w) || w.startsWith(n))) {
-        times[i] = words[k].t; j = k + 1;
-        while (j < words.length && norm(words[j].w) && n.includes(norm(words[j].w)) && !n.startsWith(norm(words[j].w))) j++;
-        break;
-      }
-    }
-  });
-  const dur = duration || say.length / 14;
-  sTok.forEach((t, i) => { if (times[i] == null) times[i] = (t.at / Math.max(1, say.length)) * dur; });
-  for (let i = 1; i < times.length; i++) if (times[i] < times[i - 1]) times[i] = times[i - 1];
-  const timeAt = pos => { let k = 0; while (k + 1 < sTok.length && sTok[k + 1].at <= pos) k++; return times[k] ?? 0; };
-  const chunks = []; let cur = [], curLen = 0, start = 0;
-  dTok.forEach(({ text: t, at }) => {
-    if (!cur.length) start = timeAt(map[at] ?? 0);
-    cur.push(t); curLen += t.length + 1;
-    const endSentence = /[.!?…:;]["”')]*$/.test(t), comma = /,["”')]*$/.test(t);
-    if (endSentence || cur.length >= 7 || curLen >= 42 || (comma && cur.length >= 4)) {
-      chunks.push({ t: start, text: cur.join(' ') }); cur = []; curLen = 0;
-    }
-  });
-  if (cur.length) chunks.push({ t: start, text: cur.join(' ') });
-  return chunks;
-}
+// Markup and chunking helpers (plain, spoken, buildChunks, …) are in subtitles.js, loaded before this file.
 let subRaf = 0, subShown = -1;
 function setSub(text, idle = false) {
   const el = $('sub'); el.classList.toggle('idle', idle); subKey = null;

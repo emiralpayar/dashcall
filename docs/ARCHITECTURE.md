@@ -6,7 +6,7 @@ Dashcall has four parts. None of them has npm dependencies.
  browser (phone / car)              web/  (Linux server, Docker)              agent/  (Mac)
 ┌──────────────────────┐  HTTPS  ┌──────────────────────────────┐  bearer  ┌──────────────────────────────────┐
 │ web/public: SPA      │────────▶│ web/server.mjs               │─────────▶│ agent/server.mjs  HTTP API       │
-│ i18n.js, app.js      │         │ login, cookie, CSP, static,  │ Tailscale│  ├─ lib.mjs ── herdr CLI ───────▶ Claude Code sessions
+│ i18n, subtitles, app │         │ login, cookie, CSP, static,  │ Tailscale│  ├─ lib.mjs ── herdr CLI ───────▶ Claude Code sessions
 │ mic → MediaRecorder  │◀────────│ /api/* proxy                 │◀─────────│  ├─ claude -p (dispatcher/) ─▶ dashcall CLI
 │ speech playback      │         └──────────────────────────────┘          │  ├─ ffmpeg + whisper-cli (STT)   │
 └──────────────────────┘                                                   │  ├─ tts/speak.py / say (TTS)     │
