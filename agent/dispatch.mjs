@@ -58,7 +58,9 @@ export function conversationQueue(onError = () => {}) {
 // inside a Turkish sentence that is useless. Conservative patterns: anything else keeps the generic failure text.
 // overloaded also covers rate_limit_error: either way the answer is "try again shortly".
 const KINDS = [
-  ['usage_limit', /\byou[’']?ve (?:hit|reached) your (?:[\w-]+ ){0,3}limit\b|\b(?:usage|session|weekly|daily|5-hour|opus|sonnet) limit (?:reached|hit)\b/i],
+  // also "You're out of extra usage" / "You're out of usage credits" / "Your org is out of usage", which Claude Code
+  // shows once a Max plan's extra usage or an org's allowance is used up
+  ['usage_limit', /\byou[’']?ve (?:hit|reached) your (?:[\w-]+ ){0,3}limit\b|\b(?:usage|session|weekly|daily|5-hour|opus|sonnet) limit (?:reached|hit)\b|\b(?:you[’']?re|your org is) out of (?:extra )?usage\b/i],
   ['not_logged_in', /\bnot logged in\b|please run \/login|\binvalid api key\b|\boauth token (?:has )?expired\b|\bauthentication_error\b/i],
   ['overloaded', /\boverloaded(?:_error)?\b|\brate_limit_error\b/i],
 ];

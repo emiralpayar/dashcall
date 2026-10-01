@@ -99,6 +99,11 @@ test('usage limits become a short sentence in the job language, keeping the rese
   assert.equal(friendlyError('Claude usage limit reached. Your limit will reset at 3pm (America/New_York).', 'en').text, 'You\'ve hit the Claude usage limit. It resets at 3pm.');
   assert.equal(friendlyError('You\'ve reached your usage limit.', 'tr').text, '[[Claude|klod]] kullanım limitine ulaşıldı, biraz sonra tekrar dene.');
   assert.equal(friendlyError(live, 'xx').text, friendlyError(live, 'en').text);
+  // Claude Code's other "used up" messages (from its own list of limit messages, 2.1.286)
+  for (const s of ['You’re out of extra usage · resets 4pm (Europe/Istanbul)', "You're out of usage credits", 'Your org is out of usage · contact your admin']) {
+    assert.equal(friendlyError(s, 'tr')?.code, 'usage_limit', s);
+  }
+  assert.equal(friendlyError('You’re out of extra usage · resets 4pm (Europe/Istanbul)', 'tr').text, '[[Claude|klod]] kullanım limitine ulaşıldı, 16:00’da sıfırlanıyor.');
 });
 
 test('the older "usage limit reached|<unix time>" format is read in local time', () => {
