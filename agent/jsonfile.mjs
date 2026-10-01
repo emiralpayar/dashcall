@@ -29,12 +29,16 @@ function parse(file, fallback) {
 // warning until it parses again.
 export function readJson(file, fallback) {
   const { value, problem } = parse(file, fallback);
+  report(file, problem);
+  return value;
+}
+
+function report(file, problem) {
   if (!problem) warned.delete(file);
   else if (!warned.has(file)) {
     warned.add(file);
     console.error(`warning: ignoring ${file} (${problem}); it stays as it is until the next change moves it aside`);
   }
-  return value;
 }
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
@@ -76,7 +80,8 @@ function writeAtomic(file, data) {
   const tmp = file + '.' + process.pid + '.tmp';
   try {
     const fd = openSync(tmp, 'w');
-    // flushed before the rename, so a crash or power cut leaves the old file or the new one, never an empty one
+    // flushed before the rename so a crash can't publish a half-written file (best effort: on macOS plain fsync
+    // doesn't flush the drive's cache, and the folder isn't synced)
     try { writeFileSync(fd, data); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(tmp, file);
   } catch (e) { try { unlinkSync(tmp); } catch {} throw e; }
@@ -86,13 +91,15 @@ function writeAtomic(file, data) {
 export function updateJson(file, fallback, fn) {
   return withLock(file, () => {
     const { value, problem } = parse(file, fallback);
+    let result;
+    // fn first: when it fails (an unknown id, say) nothing gets saved, so an unusable file stays where it is
+    try { result = fn(value); } catch (e) { report(file, problem); throw e; }
     if (problem) {
-      // never write over content we couldn't read: keep it next to the file, then carry on from the fallback
+      // never write over content we couldn't read: keep it next to the file, then save the new value
       const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
       renameSync(file, kept);
-      console.error(`warning: ${file} was unusable (${problem}); moved it to ${kept} and started a new one. Fix that copy and merge it back to restore its contents.`);
+      console.error(`warning: ${file} was unusable (${problem}); moved it to ${kept} before saving a new one. Fix that copy and merge it back to restore its contents.`);
     }
-    const result = fn(value);
     writeAtomic(file, JSON.stringify(value, null, 1));
     return result;
   });

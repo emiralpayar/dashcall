@@ -52,6 +52,19 @@ test('updateJson() moves an unparseable file aside instead of writing over it', 
   assert.ok(err.mock.calls[0].arguments[0].includes(kept), 'the warning says where the content went');
 });
 
+test('a failing update leaves an unparseable file where it is, and says why it read as empty', t => {
+  const dir = tempDir(), f = path.join(dir, 'brain.json'), bad = '{"memory": [{"id": "a", "text": "keep me"}],}';
+  writeFileSync(f, bad);
+  const err = quiet(t);
+  assert.throws(() => updateJson(f, brain, () => { throw new Error('not found: zzz'); }), /not found/);
+  assert.equal(readFileSync(f, 'utf8'), bad);
+  assert.deepEqual(readdirSync(dir), ['brain.json'], 'nothing moved aside, no lock or temp file left');
+  assert.equal(err.mock.callCount(), 1);
+  assert.match(err.mock.calls[0].arguments[0], /ignoring .*brain\.json/);
+  readJson(f, brain);
+  assert.equal(err.mock.callCount(), 1, 'still once per breakage');
+});
+
 test('valid JSON of the wrong kind is unusable too, and kept the same way', t => {
   quiet(t);
   for (const [content, fallback] of [['[1, 2]', brain], ['{"a": 1}', list], ['null', list], ['"text"', brain]]) {
@@ -135,15 +148,16 @@ test('an old lock is broken even when its pid is alive or missing', () => {
 });
 
 test('a fresh lock held by a live process is waited for, not broken', async () => {
-  const f = path.join(tempDir(), 'x.json'), lock = f + '.lock';
-  const holder = spawn(process.execPath, ['-e', `const fs = require('fs'); fs.writeFileSync(${JSON.stringify(lock)}, String(process.pid), { flag: 'wx' });
-    console.log('locked'); setTimeout(() => fs.unlinkSync(${JSON.stringify(lock)}), 400);`], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const dir = tempDir(), f = path.join(dir, 'x.json'), lock = f + '.lock', done = path.join(dir, 'released');
+  // the holder notes that it let go before removing its lock, and exits 2 if the lock was taken from it
+  const holder = spawn(process.execPath, ['-e', `const fs = require('fs'), lock = ${JSON.stringify(lock)};
+    fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); console.log('locked');
+    setTimeout(() => { fs.writeFileSync(${JSON.stringify(done)}, ''); if (fs.readFileSync(lock, 'utf8') !== String(process.pid)) process.exit(2); fs.unlinkSync(lock); }, 400);`],
+  { stdio: ['ignore', 'pipe', 'inherit'] });
   const exited = new Promise(resolve => holder.on('exit', resolve));
   await new Promise(resolve => holder.stdout.once('data', resolve));
-  const t0 = Date.now();
-  updateJson(f, list, l => l.push(1));
-  const waited = Date.now() - t0;
-  assert.ok(waited >= 250 && waited < 3000, `waited ${waited} ms`);
+  // ordering, not wall time: under the lock, the holder must already have let go
+  updateJson(f, list, l => { assert.ok(existsSync(done), 'took the lock before its holder let go'); l.push(1); });
   assert.equal(await exited, 0, 'the holder still owned its lock when it let go');
   assert.deepEqual(readJson(f, list), [1]);
 });

@@ -118,7 +118,7 @@ Everything personal stays on the Mac, inside the repo folder, and is git-ignored
 | --- | --- | --- |
 | `dispatcher/brain/brain.json` (`DASHCALL_BRAIN_FILE`) | Agent, `dashcall` CLI | `{memory[], notes[], muted[]}`: facts about you, your notes and reminders, muted sessions and projects |
 | `state/notifications.json` (`DASHCALL_STATE_DIR`) | Agent | The last 200 answers and summaries, including your questions |
-| `state/watches.json` | Agent, `dashcall` CLI | Background tasks: every waiting one, plus the last 50 fired or cancelled |
+| `state/watches.json` | Agent, `dashcall` CLI | Background tasks: every waiting one, plus the 50 newest (by creation) fired or cancelled |
 | `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors. Questions and transcripts only with `DASHCALL_LOG_CONTENT=1`. |
 | `research/` | Sessions started for research | The dispatcher's default folder for research that belongs to no project |
 | `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them). The dispatcher's own conversations are stored here too. |

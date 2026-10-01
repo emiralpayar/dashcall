@@ -173,8 +173,10 @@ read:
 ### `timed out waiting for <file>.lock`
 
 Every change to these files holds a lock file next to them that contains the writer's process ID. A lock whose
-process is gone is removed straight away, and one older than 3 seconds counts as abandoned, so this error usually
-means the lock can't be removed: check that the user running the agent can write to the folder.
+process is gone is removed straight away, and one older than 3 seconds counts as abandoned, so this error means a
+`<file>.lock` is there that can't be read or removed: a folder with that name, a file the agent's user can't read, or
+a lock in a folder that user can't write to. When no `dashcall` command is running, delete `<file>.lock` by hand and
+fix the permissions.
 
 ## Microphone and audio in the browser
 

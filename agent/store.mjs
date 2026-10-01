@@ -30,7 +30,8 @@ export function addWatch(w) {
   return update('watches', l => {
     const rec = { id: newId(), created: new Date().toISOString(), state: 'waiting', sawWorking: false, idlePolls: 0, ...w };
     l.push(rec);
-    // every waiting watch stays; of the fired and cancelled ones only the latest, so the file can't grow forever
+    // every waiting watch stays; of the fired and cancelled ones only the newest by creation (cancelled ones carry
+    // no finish time), so the file can't grow forever
     const old = new Set(l.filter(x => x.state !== 'waiting').slice(0, -KEEP_FINISHED_WATCHES));
     if (old.size) l.splice(0, l.length, ...l.filter(x => !old.has(x)));
     return rec;
