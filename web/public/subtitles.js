@@ -1,5 +1,6 @@
-// Subtitle helpers for app.js: pronunciation markup and timed subtitle chunks. A classic script (the CSP allows only
-// same-origin scripts, no modules) with pure functions only, so test/subtitles.test.mjs can load it with node:vm.
+// Subtitle helpers for app.js: pronunciation markup and timed subtitle chunks. A classic script like app.js, which
+// reads these names from the shared global scope, with pure functions only, so test/subtitles.test.mjs can load it
+// with node:vm.
 
 // Words are matched in the UI language (Turkish I/ı lowercase differently). getLang() comes from i18n.js when the
 // page loads it; on its own (tests) the default locale is used.
@@ -42,9 +43,11 @@ function buildChunks(raw, words, duration, lang = subtitleLang()) {
       if (w && (n === w || n.startsWith(w) || w.startsWith(n))) {
         times[i] = words[k].t; j = k + 1;
         // the voice may split a word ("e-posta" → "e", "posta"): skip its remaining parts, in order, and no further
-        // ("this" contains "is", but the next "is" is a word of its own)
+        // ("this" contains "is", but the next "is" is a word of its own). The English voice also times the punctuation
+        // inside a path ("src/index.ts" → "src", "/", "index", ".", "ts"): those parts have no letters, so they match
+        // the empty start of `rest` and are skipped too; stopping at them left every later word of the reply untimed.
         let rest = n.startsWith(w) ? n.slice(w.length) : '', v;
-        while (rest && j < words.length && (v = norm(words[j].w, lang)) && rest.startsWith(v)) { rest = rest.slice(v.length); j++; }
+        while (rest && j < words.length && rest.startsWith(v = norm(words[j].w, lang))) { rest = rest.slice(v.length); j++; }
         break;
       }
     }

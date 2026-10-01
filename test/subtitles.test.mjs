@@ -152,6 +152,15 @@ test('a word the voice splits in parts is consumed whole', () => {
   assert.deepEqual(starts('E-posta. Posta.', [{ w: 'E', t: 0 }, { w: 'posta', t: 0.3 }, { w: 'Posta', t: 1 }], 2), [0, 1]);
 });
 
+test('punctuation the voice times inside a path does not stop the alignment', () => {
+  // en-US edge-tts word boundaries for a path: the "/" and "." parts come as words of their own, with no letters
+  const words = [['I', 0.1], ['changed', 0.2], ['src', 0.6], ['/', 0.9], ['index', 1.1], ['.', 1.4], ['ts', 1.5], ['and', 1.9],
+    ['web', 2.0], ['/', 2.2], ['server', 2.4], ['.', 2.7], ['mjs', 2.8], ['then', 3.3], ['bumped', 3.5], ['it', 3.8], ['to', 3.9],
+    ['v2.1.0', 4.0], ['The', 5.0], ['rest', 5.2], ['lines', 5.5], ['up', 5.8]].map(([w, t]) => ({ w, t }));
+  assert.deepEqual(starts('I changed src/index.ts and web/server.mjs, then bumped it to v2.1.0. The rest lines up.', words, 99),
+    [0.1, 3.3, 5]);
+});
+
 test('a word that contains the next one does not swallow it', () => {
   // "this" contains "is", "what" contains "a": the next words keep their own times
   const said = 'Hello there. This is a test. Done.';
