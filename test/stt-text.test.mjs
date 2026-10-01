@@ -12,6 +12,16 @@ test('collapses a transcript that repeats itself sentence by sentence', () => {
   assert.equal(clean('Run the tests. Stop. Stop. Stop.'), 'Run the tests. Stop.', 'a repeating tail');
   assert.equal(clean('Dur. Dur. Hepsini durdur.'), 'Dur. Hepsini durdur.');
   assert.equal(clean('  Merhaba\n  dünya  '), 'Merhaba dünya');
+  assert.equal(clean('Dur. Bekle. Bekle. Dur. Bekle.'), 'Dur. Bekle.', 'a removal that makes an earlier repeat');
+});
+
+test('collapses a long whisper loop quickly (the agent is single-threaded)', () => {
+  // 600 distinct sentences, then whisper stuck on one: took ~2 s per 800 words with the first version
+  const said = Array.from({ length: 600 }, (_, i) => `Madde ${i}.`).join(' ');
+  const t0 = performance.now();
+  assert.equal(clean(`${said} ${Array(1500).fill('Dur.').join(' ')}`), `${said} Dur.`);
+  assert.equal(clean(Array(1000).fill('Dur. Bekle.').join(' ')), 'Dur. Bekle.');
+  assert.ok(performance.now() - t0 < 500, `${Math.round(performance.now() - t0)} ms`);
 });
 
 test('keeps repetition that is not a repeated sentence', () => {

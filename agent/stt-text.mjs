@@ -23,18 +23,24 @@ const SILENCE = new Set([...CREDITS, ...[
 
 // Removes a block of whole sentences that directly repeats the block before it, until none is left:
 // "A? B. A? B." → "A? B.", "A. A. A." → "A.", "X. A. A." → "X. A.". Only sentence-sized blocks count, so
-// "yavaş yavaş" and "tamam, tamam" stay as spoken.
+// "yavaş yavaş" and "tamam, tamam" stay as spoken. Keys and sentence ends are computed once and every copy at a
+// position is removed before moving on, so a long whisper loop ("Dur. Dur. Dur. …") costs milliseconds, not seconds
+// of a blocked agent.
 function collapseRepeats(words) {
-  const k = words.map(word);
-  const startsSentence = i => i === 0 || END.test(words[i - 1]);
-  for (let i = 0; i < words.length; i++) {
-    if (!startsSentence(i)) continue;
-    for (let len = 1; i + 2 * len <= words.length; len++) {
-      const end = i + 2 * len; // the copy is words[i + len .. end)
-      if (!END.test(words[i + len - 1]) || (end < words.length && !END.test(words[end - 1]))) continue;
-      if (k.slice(i, i + len).every((x, j) => x === k[i + len + j])) {
-        words.splice(i + len, len);
-        return collapseRepeats(words);
+  const k = words.map(word), ends = words.map(w => END.test(w));
+  for (let changed = true, pass = 0; changed && pass < 10; pass++) { // a removal can create an earlier repeat
+    changed = false;
+    for (let i = 0; i < words.length; i++) {
+      if (i > 0 && !ends[i - 1]) continue; // a block starts a sentence
+      for (let len = 1; i + 2 * len <= words.length; len++) {
+        const end = i + 2 * len; // the copy is words[i + len .. end); the last copy may lack its full stop
+        if (!ends[i + len - 1] || (end < words.length && !ends[end - 1])) continue;
+        let j = 0;
+        while (j < len && k[i + j] === k[i + len + j]) j++;
+        if (j < len) continue;
+        for (const a of [words, k, ends]) a.splice(i + len, len);
+        changed = true;
+        len = 0; // look for the next copy of a block starting here
       }
     }
   }
