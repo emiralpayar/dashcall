@@ -107,9 +107,10 @@ main { flex: 1; min-width: 0; width: 100%; max-width: 1100px; margin: 0 auto; pa
 .badge { font-size: .78rem; padding: 3px 9px; border-radius: 99px; background: var(--panel2); color: var(--muted); white-space: nowrap; margin-left: auto; }
 .empty-note { color: var(--muted); padding: 20px 0; }
 
-/* detail: a column exactly as tall as the viewport; the screen gets whatever the header rows (which wrap on narrow
-   screens) and the composer leave, so the composer never falls below the fold */
-#detail:not([hidden]) { display: flex; flex-direction: column; height: calc(100dvh - var(--top-h) - 32px); }
+/* detail: a column at least as tall as the viewport; the screen gets whatever the header rows (which wrap on narrow
+   screens) and the composer leave, so the composer never falls below the fold. A minimum, not a fixed height: on a
+   very small screen the column grows and the page scrolls, instead of the composer ending up behind the tab bar. */
+#detail:not([hidden]) { display: flex; flex-direction: column; min-height: calc(100vh - var(--top-h) - 32px); min-height: calc(100dvh - var(--top-h) - 32px); }
 .detail-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .detail-h h2 { margin: 0; font-size: 1.2rem; flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .keys { display: flex; gap: 6px; }
@@ -189,7 +190,8 @@ main { flex: 1; min-width: 0; width: 100%; max-width: 1100px; margin: 0 auto; pa
   .subtitle { font-size: clamp(1.35rem, 6vw, 1.8rem); }
   .cards { grid-template-columns: minmax(0, 1fr); }
   .brain { grid-template-columns: minmax(0, 1fr); }
-  #detail:not([hidden]) { height: calc(100dvh - var(--top-h) - var(--nav-h) - env(safe-area-inset-bottom) - 32px); }
+  #detail:not([hidden]) { min-height: calc(100vh - var(--top-h) - var(--nav-h) - env(safe-area-inset-bottom) - 32px);
+    min-height: calc(100dvh - var(--top-h) - var(--nav-h) - env(safe-area-inset-bottom) - 32px); }
   .screen { min-height: 160px; font-size: 11px; padding: 10px; }
   /* the quick keys get a row of their own, as wide as the screen: easy to hit while driving */
   .keys { flex: 1 1 100%; }

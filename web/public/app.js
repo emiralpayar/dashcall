@@ -374,6 +374,8 @@ function openSheet(key, html, render = null) {
 function fillSheet([title, html]) { $('sheet-title').textContent = title; $('sheet-body').innerHTML = html; }
 function closeSheet() {
   if ($('sheet').hidden) return;
+  // Safari doesn't focus a tapped button, so there may be no opener to go back to: don't leave focus in a hidden sheet
+  if ($('sheet').contains(document.activeElement)) document.activeElement.blur();
   $('sheet').hidden = true; sheetRender = null;
   let o = sheetOpener; sheetOpener = null;
   // the session list re-renders every 15 s: if the card that opened the sheet was replaced, focus its successor

@@ -87,6 +87,17 @@ test('the PWA manifest and its icons are public, so "add to home screen" works',
   }
 });
 
+test('the session detail fills the screen but can grow, so the composer never ends up behind the tab bar', () => {
+  // A fixed height clipped the composer under the phone tab bar on small screens (320x568), with no way to scroll to it.
+  const css = readFileSync(new URL('../web/public/style.css', import.meta.url), 'utf8');
+  const rules = [...css.matchAll(/#detail:not\(\[hidden\]\)\s*\{([^}]*)\}/g)].map(m => m[1]);
+  assert.ok(rules.length >= 2, 'a desktop and a phone rule');
+  for (const r of rules) {
+    assert.match(r, /min-height:\s*calc\(100dvh/);
+    assert.doesNotMatch(r, /(^|[^-])height:/, 'no fixed height');
+  }
+});
+
 test('the CSP allows no inline scripts or styles, and no page needs them', async () => {
   const csp = (await fetch(base + '/')).headers.get('content-security-policy');
   assert.match(csp, /script-src 'self';/);
