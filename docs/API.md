@@ -258,8 +258,9 @@ matches that folder and everything inside it. Returns the mute; muting the same 
 
 #### `POST /api/brain/forget`
 
-Body `{"key": "<memory id | note id | mute id | mute key>"}`. Deletes that item and returns it. Errors:
-`key_required`, `not_found`.
+Body `{"key": "<memory id | note id | mute id | mute key>"}`. Deletes that item and returns it. A mute key also
+removes any other mute with an equivalent folder key (such as `api` and `API/`), so the sessions it matched are really
+unmuted. Errors: `key_required`, `not_found`.
 
 ## Web endpoints
 

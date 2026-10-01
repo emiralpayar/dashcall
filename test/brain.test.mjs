@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { statSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { tempDir } from './helpers.mjs';
@@ -90,6 +90,19 @@ test('mute and forget treat equivalent folder keys as the same mute', () => {
   assert.equal(B.mute('my-api/').id, m.id);
   assert.equal(B.forget('MY-API').id, m.id);
   assert.throws(() => B.forget('my-api'), /not found/);
+});
+
+test('forgetting a folder key removes equivalent copies saved before keys were compared this way', () => {
+  const before = B.load();
+  writeFileSync(process.env.DASHCALL_BRAIN_FILE, JSON.stringify({ ...before, muted: [...before.muted,
+    { id: 'aaa111', key: 'api', label: 'api' }, { id: 'bbb222', key: 'API/', label: 'API' }, { id: 'ccc333', key: 'web', label: 'web' },
+    { id: 'ddd444', key: 'Web', label: 'Web' }] }));
+  const s = { sessionId: 'x', cwd: '/Users/you/api' };
+  assert.equal(B.forget(B.isMuted(s).key).id, 'aaa111');
+  assert.equal(B.isMuted(s), null, 'the session is really unmuted');
+  assert.equal(B.forget('ccc333').key, 'web', 'forgetting by id removes only that entry');
+  assert.deepEqual(B.load().muted.map(m => m.id), [...before.muted.map(m => m.id), 'ddd444']);
+  B.forget('ddd444');
 });
 
 test('unmuteSession leaves the brain file alone when there is nothing to remove', () => {

@@ -27,6 +27,9 @@ export const forget = key => mutate(b => {
     if (i >= 0) { hit = b[k].splice(i, 1)[0]; break; }
   }
   if (!hit) throw httpError(404, 'not_found', 'not found: ' + key);
+  // mutes saved before folder keys were compared this way can have equivalent copies ("api" and "API/"): forgetting
+  // the key removes them all, or the session it unmutes would stay muted
+  if (sameKey(hit.key, key)) b.muted = b.muted.filter(m => !sameKey(m?.key, key));
   return hit;
 });
 
