@@ -13,6 +13,7 @@ import { config, ROOT } from './config.mjs';
 import { httpError, errorBody } from './errors.mjs';
 import { pickLang, pickVoice } from './lang.mjs';
 import * as P from './prompts.mjs';
+import * as D from './dispatch.mjs';
 
 const pexec = promisify(execFile);
 const TOKEN = config.token;
@@ -49,28 +50,36 @@ function send(res, status, data, type = 'application/json') {
 }
 
 // ---------- dispatcher jobs ----------
-const jobs = new Map(); // id -> {status, reply, conversationId, error, started}
+const jobs = new Map(); // id -> {status, queued, reply, conversationId, error, detail, requestId, started}
+const enqueue = D.conversationQueue();
+if (config.dispatchUnrestricted) console.warn('warning: DASHCALL_DISPATCH_UNRESTRICTED=1: the dispatcher runs with --dangerously-skip-permissions');
 
-// meta: { kind: 'answer' | 'task', title, q } — every finished job is stored as a notification,
+// meta: { kind: 'answer' | 'task', title, q, requestId } — every finished job is stored as a notification,
 // so an answer is never lost if the page was closed; the client marks it read once it has delivered it.
+// Jobs of one conversation run one at a time; a job waiting its turn is 'running' with queued: true.
 function runDispatcher(text, conversationId, lang, meta = {}) {
   const id = randomUUID();
-  const job = { id, status: 'running', started: Date.now(), text, lang, kind: meta.kind || 'answer' };
+  const job = { id, status: 'running', queued: true, started: Date.now(), text, lang, kind: meta.kind || 'answer', requestId: meta.requestId };
   jobs.set(id, job);
-  const sys = P.systemPrompt(lang);
-  const args = ['-p', L.asPositional(text), '--output-format', 'json', '--dangerously-skip-permissions', '--model', config.dispatchModel, '--append-system-prompt', sys];
-  // Claude Code also loads CLAUDE.md files from parent folders: keep the repo's contributor guide out of the dispatcher.
-  args.push('--settings', JSON.stringify({ claudeMdExcludes: [path.join(ROOT, 'CLAUDE.md'), path.join(ROOT, 'AGENTS.md'), path.join(ROOT, '.claude', 'CLAUDE.md')] }));
-  if (conversationId) args.push('--resume', conversationId);
-  const env = { ...process.env, PATH: `${path.join(ROOT, 'agent/bin')}${path.delimiter}${process.env.PATH}`, DASHCALL_JOB_ID: id, DASHCALL_CONVERSATION_ID: conversationId || '', DASHCALL_LANGUAGE: lang };
+  enqueue(conversationId, (sid, done) => startDispatcher(job, sid, meta, done));
+  return job;
+}
+
+// sid: the session to resume, i.e. the conversation's latest session id once the jobs ahead of this one have finished.
+function startDispatcher(job, sid, meta, done) {
+  const { id, text, lang } = job;
+  delete job.queued;
+  const args = D.dispatcherArgs({ text: L.asPositional(text), conversationId: sid, model: config.dispatchModel, systemPrompt: P.systemPrompt(lang), root: ROOT, unrestricted: config.dispatchUnrestricted });
+  const env = { ...process.env, PATH: `${path.join(ROOT, 'agent/bin')}${path.delimiter}${process.env.PATH}`, DASHCALL_JOB_ID: id, DASHCALL_CONVERSATION_ID: sid || '', DASHCALL_LANGUAGE: lang };
   for (const k of ['HERDR_ENV', 'HERDR_PANE_ID', 'HERDR_TAB_ID', 'HERDR_WORKSPACE_ID', 'CLAUDECODE']) delete env[k];
-  const p = spawn(config.bin.claude, args, { cwd: L.DISPATCHER_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let out = '', err = '', finished = false;
+  let out = '', err = '', finished = false, p, kill;
+  // spawn throws synchronously on e.g. a NUL byte in the text; report that as a failed job like any other
+  try { p = spawn(config.bin.claude, args, { cwd: L.DISPATCHER_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { err = e.message; return finish(null); }
   // decode as a stream so multi-byte characters (ş, ğ, ı…) split across chunks survive
   p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
   p.stdout.on('data', d => out += d);
   p.stderr.on('data', d => err += d);
-  const kill = setTimeout(() => { p.kill('SIGTERM'); setTimeout(() => p.kill('SIGKILL'), 5000).unref(); }, 5 * 60e3);
+  kill = setTimeout(() => { p.kill('SIGTERM'); setTimeout(() => p.kill('SIGKILL'), 5000).unref(); }, 5 * 60e3);
   // e.g. ENOENT when the claude binary is missing; without this handler the whole agent would crash
   p.on('error', e => { err += e.message; finish(null); });
   p.on('close', code => finish(code));
@@ -81,24 +90,30 @@ function runDispatcher(text, conversationId, lang, meta = {}) {
       const r = JSON.parse(out);
       job.reply = r.result; job.conversationId = r.session_id;
       job.status = r.is_error ? 'error' : 'done';
-      if (r.is_error) job.error = r.result;
+      if (r.is_error) job.error = String(r.result || r.subtype || 'error');
     } catch {
       job.status = 'error'; job.error = (err || out || `exit ${code}`).slice(-2000);
     }
     job.ms = Date.now() - job.started;
     log(job.kind === 'task' ? 'task-summary' : 'ask', job.status, job.ms + 'ms', config.logContent ? JSON.stringify(meta.q || text).slice(0, 120) : '');
+    if (job.status === 'error') {
+      log('dispatcher error', JSON.stringify(job.error.slice(-300)));
+      // a usage limit, logged-out Claude or overload: say so in the user's language, keep Claude's words in `detail`
+      const f = D.friendlyError(job.error, lang);
+      if (f) { job.detail = job.error; job.error = f.text; }
+    }
     // background tasks started during this job now know which conversation to report back into
     try {
       if (job.conversationId) S.update('watches', l => { for (const w of l) if (w.jobId === id && !w.conversationId) w.conversationId = job.conversationId; });
       const n = S.notify({
       jobId: id, kind: job.kind, lang, title: meta.title || null, q: meta.q ?? text,
-      text: job.status === 'done' ? job.reply : `${FAILED[lang]}: ${String(job.error || '').slice(0, 300)}`,
-      error: job.status !== 'done', conversationId: job.conversationId || conversationId || null,
+      text: job.status === 'done' ? job.reply : job.detail ? job.error : `${FAILED[lang]}: ${String(job.error || '').slice(0, 300)}`,
+      error: job.status !== 'done', detail: job.detail, conversationId: job.conversationId || sid || null,
       });
       job.notificationId = n.id;
     } catch (e) { log('state write failed', e.message); } // e.g. disk full: keep serving, the reply is still pollable
+    done(job.conversationId); // the next job of this conversation resumes the session this one ended in
   }
-  return job;
 }
 const FAILED = { en: 'Something went wrong', tr: 'Bir sorun oldu' };
 setInterval(() => { for (const [k, j] of jobs) if (Date.now() - j.started > 3600e3) jobs.delete(k); }, 600e3).unref();
@@ -153,6 +168,7 @@ async function speak(text, voice, rate, lang) {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUEST_ID = /^[\w-]{1,64}$/;
 // Only accept the containers browsers record (WebM, Ogg, MP4, WAV) so ffmpeg never parses playlists etc.
 function isAudio(b) {
   if (b.length < 12) return false;
@@ -188,16 +204,18 @@ const routes = [
   }],
   ['GET', /^\/api\/dirs$/, async () => ({ dirs: await L.listDirs() })],
   ['POST', /^\/api\/ask$/, async req => {
-    const { text, conversationId, lang } = await json(req);
+    const { text, conversationId, lang, requestId } = await json(req);
     const t = requireText(text);
     if (conversationId != null && !UUID.test(conversationId)) throw httpError(400, 'bad_conversation_id', 'bad conversationId');
-    const j = runDispatcher(t, conversationId, pickLang(lang));
-    return { id: j.id, status: j.status };
+    if (requestId != null && (typeof requestId !== 'string' || !REQUEST_ID.test(requestId))) throw httpError(400, 'bad_request_id', 'bad requestId');
+    // the client retries the POST after a network error, but the first attempt may already have started the job
+    const j = (requestId && [...jobs.values()].find(x => x.requestId === requestId)) || runDispatcher(t, conversationId, pickLang(lang), { requestId });
+    return { id: j.id, status: j.status, queued: j.queued };
   }],
   ['GET', /^\/api\/ask\/([\w-]+)$/, async (req, url, m) => {
     const j = jobs.get(m[1]);
     if (!j) throw httpError(404, 'unknown_job', 'unknown job');
-    return { id: j.id, status: j.status, lang: j.lang, reply: j.reply, conversationId: j.conversationId, error: j.error, notificationId: j.notificationId, elapsed: Date.now() - j.started };
+    return { id: j.id, status: j.status, queued: j.queued, lang: j.lang, reply: j.reply, conversationId: j.conversationId, error: j.error, detail: j.detail, notificationId: j.notificationId, elapsed: Date.now() - j.started };
   }],
   ['POST', /^\/api\/speak$/, async req => { const { text, voice, rate, lang } = await json(req); return speak(String(text ?? ''), voice, rate, pickLang(lang)); }],
   ['GET', /^\/api\/notifications$/, async () => {

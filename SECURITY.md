@@ -19,9 +19,11 @@ Security fixes go into the latest release and the `main` branch.
   Mac. Use a long random `DASHCALL_PASSWORD` and serve the app only over HTTPS.
 - **The agent must stay private.** Bind it to a private address (for example Tailscale) and never expose it publicly.
   Every request needs the `DASHCALL_TOKEN` bearer token.
-- **The dispatcher runs `claude -p --dangerously-skip-permissions`** so that it can use the `dashcall` CLI
-  unattended. Anything it reads, such as session output, research results or a misheard transcript, can contain a
-  prompt injection. It is told to delegate work rather than do it, but that is an instruction, not a sandbox.
+- **The dispatcher may only run the `dashcall` CLI.** Anything it reads, such as session output, research results or
+  a misheard transcript, can contain a prompt injection, so it runs `claude -p --permission-mode dontAsk` with Bash
+  limited to `dashcall` commands (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-dispatchers-permissions)).
+  Through `dashcall` it can still type into your sessions, press keys in them and start new ones.
+  `DASHCALL_DISPATCH_UNRESTRICTED=1` turns the restriction off; don't.
 - **`DASHCALL_SESSION_COMMAND` decides whether new sessions ask for permissions.** The default `claude` asks. With
   `claude --dangerously-skip-permissions`, background tasks run unattended and can do anything your user can.
 - **New sessions only start under `DASHCALL_WORKSPACE_ROOT`** (default: your home directory), checked with resolved
@@ -44,5 +46,6 @@ In scope:
 Out of scope, because they are documented, by-design trade-offs:
 
 - A logged-in user being able to control Claude Code sessions.
-- The dispatcher running with `--dangerously-skip-permissions`.
+- What the dispatcher can do through the `dashcall` CLI, including driving your sessions, and anything it can do
+  with `DASHCALL_DISPATCH_UNRESTRICTED=1`. Making it run any other command is in scope.
 - Prompt injection that requires the attacker to already control a session's content or the user's speech.
