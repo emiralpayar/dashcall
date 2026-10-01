@@ -147,3 +147,14 @@ test('herdr() parses JSON output and maps JSON errors', async () => {
   assert.deepEqual(await L.herdr(['ok']), { result: { x: 1 } });
   await assert.rejects(L.herdr(['fail']), e => e.message === 'bad pane' && e.code === 'nope');
 });
+
+test('listDirs() lists project folders and the projects inside container folders', async () => {
+  for (const d of ['dl-api/src', 'dl-dev/agent-arena', 'dl-dev/other', 'dl-dev/.hidden', 'Library/x', 'dl-tool.app']) mkdirSync(path.join(home, d), { recursive: true });
+  writeFileSync(path.join(home, 'dl-api/package.json'), '{}');
+  const names = (await L.listDirs()).map(d => d.name);
+  for (const n of ['dl-api', 'dl-dev', 'dl-dev/agent-arena', 'dl-dev/other']) assert.ok(names.includes(n), n);
+  // dl-api has files, so it is a project, not a container; hidden, skipped and .app folders never show
+  for (const n of ['dl-api/src', 'dl-dev/.hidden', 'Library', 'Library/x', 'dl-tool.app']) assert.ok(!names.includes(n), n);
+  const arena = (await L.listDirs()).find(d => d.name === 'dl-dev/agent-arena');
+  assert.equal(arena.path, path.join(home, 'dl-dev/agent-arena'));
+});

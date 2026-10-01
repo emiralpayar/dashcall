@@ -18,7 +18,7 @@ Sessions
   send <pane> <text...>         send a prompt to a session (also unmutes it)
   keys <pane> <key...>          send keys: esc (interrupt), enter, ctrl+c, up, down, tab, shift+tab, 1-3
   new <dir> <prompt...>         start a new session in <dir> (~/name works) with the prompt
-  dirs                          project folders under DASHCALL_WORKSPACE_ROOT, most recently modified first
+  dirs                          project folders under DASHCALL_WORKSPACE_ROOT (and inside folder-only containers), newest first
 
 Background tasks (the result arrives later as a notification that you summarize)
   task <dir> <prompt...>        start a new session in <dir> AND watch it until it finishes

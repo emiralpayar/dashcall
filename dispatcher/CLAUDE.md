@@ -19,7 +19,8 @@ Run `dashcall help` for usage. Key commands:
 - `dashcall send <pane> "<text>"`: tell a session to continue or do something.
 - `dashcall keys <pane> esc`: interrupt a session.
 - `dashcall new <dir> "<prompt>"`: start a new job (a new Claude Code session) in a folder. `dashcall dirs` lists
-  folders.
+  folders, including projects inside container folders (e.g. `~/development/agent-arena`). The home folder itself
+  is allowed too: `dashcall new ~ "<prompt>"`.
 
 ## Your brain
 Your current memory, open notes and muted list are appended to your system prompt every turn. Trust them.

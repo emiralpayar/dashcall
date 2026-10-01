@@ -18,7 +18,8 @@ test('the dispatcher may only run the dashcall CLI, and never prompts', () => {
   for (const f of ['--tools', '--allowedTools']) assert.match(args[args.indexOf(f) + 2], /^--/);
   const settings = JSON.parse(after(args, '--settings'));
   assert.deepEqual(settings.claudeMdExcludes, ['/repo/CLAUDE.md', '/repo/AGENTS.md', '/repo/.claude/CLAUDE.md']);
-  assert.equal(settings.permissions.blockReadsOutsideWorkingDirectories, true);
+  // blockReadsOutsideWorkingDirectories would also refuse `dashcall new ~/project` (a path outside dispatcher/)
+  assert.equal(settings.permissions, undefined);
   assert.ok(!args.includes('--resume'));
   assert.equal(after(dispatcherArgs({ ...base, conversationId: 'abc' }), '--resume'), 'abc');
 });
