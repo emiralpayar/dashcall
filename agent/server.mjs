@@ -51,7 +51,7 @@ function send(res, status, data, type = 'application/json') {
 
 // ---------- dispatcher jobs ----------
 const jobs = new Map(); // id -> {status, queued, reply, conversationId, error, detail, requestId, started}
-const enqueue = D.conversationQueue();
+const enqueue = D.conversationQueue(e => log('dispatcher job threw', e?.stack || e));
 if (config.dispatchUnrestricted) console.warn('warning: DASHCALL_DISPATCH_UNRESTRICTED=1: the dispatcher runs with --dangerously-skip-permissions');
 
 // meta: { kind: 'answer' | 'task', title, q, requestId } — every finished job is stored as a notification,
@@ -69,12 +69,16 @@ function runDispatcher(text, conversationId, lang, meta = {}) {
 function startDispatcher(job, sid, meta, done) {
   const { id, text, lang } = job;
   delete job.queued;
-  const args = D.dispatcherArgs({ text: L.asPositional(text), conversationId: sid, model: config.dispatchModel, systemPrompt: P.systemPrompt(lang), root: ROOT, unrestricted: config.dispatchUnrestricted });
-  const env = { ...process.env, PATH: `${path.join(ROOT, 'agent/bin')}${path.delimiter}${process.env.PATH}`, DASHCALL_JOB_ID: id, DASHCALL_CONVERSATION_ID: sid || '', DASHCALL_LANGUAGE: lang };
-  for (const k of ['HERDR_ENV', 'HERDR_PANE_ID', 'HERDR_TAB_ID', 'HERDR_WORKSPACE_ID', 'CLAUDECODE']) delete env[k];
   let out = '', err = '', finished = false, p, kill;
-  // spawn throws synchronously on e.g. a NUL byte in the text; report that as a failed job like any other
-  try { p = spawn(config.bin.claude, args, { cwd: L.DISPATCHER_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { err = e.message; return finish(null); }
+  // A throw here (spawn on a NUL byte in the text, systemPrompt on a brain.json of the wrong shape) must end as a
+  // failed job like any other: escaping into the queue would leave the job 'running' with no notification.
+  try {
+    const args = D.dispatcherArgs({ text: L.asPositional(text), conversationId: sid, model: config.dispatchModel, systemPrompt: P.systemPrompt(lang), root: ROOT, unrestricted: config.dispatchUnrestricted });
+    const env = { ...process.env, PATH: `${path.join(ROOT, 'agent/bin')}${path.delimiter}${process.env.PATH}`, DASHCALL_JOB_ID: id, DASHCALL_CONVERSATION_ID: sid || '', DASHCALL_LANGUAGE: lang };
+    // the dashcall CLI never needs the agent's token, and `dashcall send 1 "$DASHCALL_TOKEN"` passes the allow-list
+    for (const k of ['HERDR_ENV', 'HERDR_PANE_ID', 'HERDR_TAB_ID', 'HERDR_WORKSPACE_ID', 'CLAUDECODE', 'DASHCALL_TOKEN']) delete env[k];
+    p = spawn(config.bin.claude, args, { cwd: L.DISPATCHER_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) { err = e.message; return finish(null); }
   // decode as a stream so multi-byte characters (ş, ğ, ı…) split across chunks survive
   p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
   p.stdout.on('data', d => out += d);
@@ -86,18 +90,20 @@ function startDispatcher(job, sid, meta, done) {
   function finish(code) {
     if (finished) return; finished = true;
     clearTimeout(kill);
+    let partial = false; // job.error is stdout that isn't JSON (e.g. cut off by the timeout): may hold reply text
     try {
       const r = JSON.parse(out);
       job.reply = r.result; job.conversationId = r.session_id;
       job.status = r.is_error ? 'error' : 'done';
       if (r.is_error) job.error = String(r.result || r.subtype || 'error');
     } catch {
-      job.status = 'error'; job.error = (err || out || `exit ${code}`).slice(-2000);
+      job.status = 'error'; job.error = (err || out || `exit ${code}`).slice(-2000); partial = !err && !!out;
     }
     job.ms = Date.now() - job.started;
     log(job.kind === 'task' ? 'task-summary' : 'ask', job.status, job.ms + 'ms', config.logContent ? JSON.stringify(meta.q || text).slice(0, 120) : '');
     if (job.status === 'error') {
-      log('dispatcher error', JSON.stringify(job.error.slice(-300)));
+      // Claude Code's error text and stderr are logged always, stdout only with DASHCALL_LOG_CONTENT=1
+      log('dispatcher error', partial && !config.logContent ? `exit ${code}, ${out.length} chars of output that is not JSON` : JSON.stringify(job.error.slice(-300)));
       // a usage limit, logged-out Claude or overload: say so in the user's language, keep Claude's words in `detail`
       const f = D.friendlyError(job.error, lang);
       if (f) { job.detail = job.error; job.error = f.text; }
@@ -116,6 +122,7 @@ function startDispatcher(job, sid, meta, done) {
   }
 }
 const FAILED = { en: 'Something went wrong', tr: 'Bir sorun oldu' };
+const jobView = j => ({ id: j.id, status: j.status, queued: j.queued, lang: j.lang, reply: j.reply, conversationId: j.conversationId, error: j.error, detail: j.detail, notificationId: j.notificationId, elapsed: Date.now() - j.started });
 setInterval(() => { for (const [k, j] of jobs) if (Date.now() - j.started > 3600e3) jobs.delete(k); }, 600e3).unref();
 
 // ---------- speech ----------
@@ -210,12 +217,13 @@ const routes = [
     if (requestId != null && (typeof requestId !== 'string' || !REQUEST_ID.test(requestId))) throw httpError(400, 'bad_request_id', 'bad requestId');
     // the client retries the POST after a network error, but the first attempt may already have started the job
     const j = (requestId && [...jobs.values()].find(x => x.requestId === requestId)) || runDispatcher(t, conversationId, pickLang(lang), { requestId });
-    return { id: j.id, status: j.status, queued: j.queued };
+    // the full poll view: a retried POST may find the job already finished, and clients read the reply from it
+    return jobView(j);
   }],
   ['GET', /^\/api\/ask\/([\w-]+)$/, async (req, url, m) => {
     const j = jobs.get(m[1]);
     if (!j) throw httpError(404, 'unknown_job', 'unknown job');
-    return { id: j.id, status: j.status, queued: j.queued, lang: j.lang, reply: j.reply, conversationId: j.conversationId, error: j.error, detail: j.detail, notificationId: j.notificationId, elapsed: Date.now() - j.started };
+    return jobView(j);
   }],
   ['POST', /^\/api\/speak$/, async req => { const { text, voice, rate, lang } = await json(req); return speak(String(text ?? ''), voice, rate, pickLang(lang)); }],
   ['GET', /^\/api\/notifications$/, async () => {

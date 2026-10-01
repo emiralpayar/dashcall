@@ -136,9 +136,11 @@ is required. `conversationId` must be the UUID returned by an earlier job; omit 
 If a job with the same `requestId` is still known (jobs are kept for 1 hour), the agent returns that job instead of
 starting another one, whatever its status. Use a new ID for every question.
 
-Starts a dispatcher job and returns immediately: `{"id": "<job id>", "status": "running"}`. Jobs of one conversation
-run one at a time, in order; a job that has to wait for an earlier one also has `"queued": true`. Errors:
-`text_required`, `bad_conversation_id`, `bad_request_id`.
+Starts a dispatcher job and returns immediately with the same fields as [`GET /api/ask/:id`](#get-apiaskid), for a
+new job `{"id": "<job id>", "status": "running", "lang": "en", "elapsed": 0}`. A retried call can find its job
+already `done` or `error`, with the reply or error included, so read the response like a poll result. Jobs of one
+conversation run one at a time, in order; a job that has to wait for an earlier one also has `"queued": true`.
+Errors: `text_required`, `bad_conversation_id`, `bad_request_id`.
 
 #### `GET /api/ask/:id`
 

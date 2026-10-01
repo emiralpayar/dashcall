@@ -29,7 +29,7 @@ Relative paths are resolved against the repo root. Binary settings accept a bare
 | `DASHCALL_SAY_VOICE_TR` | `Yelda` | no | macOS `say` voice for Turkish. |
 | `DASHCALL_BRAIN_FILE` | `dispatcher/brain/brain.json` | no | The dispatcher's memory, notes and muted list. Private; git-ignored. |
 | `DASHCALL_STATE_DIR` | `state` | no | Folder for `notifications.json` and `watches.json`. Private; git-ignored. |
-| `DASHCALL_LOG_CONTENT` | off | no | `1` also logs questions and transcripts to stdout. Off by default because they are private. |
+| `DASHCALL_LOG_CONTENT` | off | no | `1` also logs questions and transcripts to stdout, and the output of a dispatcher run that didn't return valid JSON. Off by default because they are private. Claude Code's error messages (for example a usage limit) are always logged. |
 | `DASHCALL_CLAUDE_BIN` | `claude` | no | Claude Code binary. |
 | `DASHCALL_HERDR_BIN` | `herdr` | no | herdr binary. |
 | `DASHCALL_FFMPEG_BIN` | `ffmpeg` | no | ffmpeg binary. Used for speech-to-text and for the `say` fallback. |

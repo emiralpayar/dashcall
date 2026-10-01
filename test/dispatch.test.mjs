@@ -75,12 +75,13 @@ test('jobs without a conversation, and other conversations, never wait', () => {
 });
 
 test('a job that throws or finishes twice does not block or skip its conversation', () => {
-  const q = conversationQueue(), { log, jobs, job } = fakeJobs();
+  const errors = [], q = conversationQueue(e => errors.push(e.message)), { log, jobs, job } = fakeJobs();
   q('c1', job('a'));
   q('c1', () => { throw new Error('spawn failed'); });
   q('c1', job('b'));
   jobs.a.finish(); jobs.a.finish();
   assert.deepEqual(log, ['start a c1', 'end a', 'start b c1', 'end a']);
+  assert.deepEqual(errors, ['spawn failed']);
   q('c1', job('c'));
   assert.equal(jobs.c, undefined, 'c waits for b');
   jobs.b.finish();

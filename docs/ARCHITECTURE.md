@@ -44,7 +44,7 @@ rest: the title, the last user prompt and the last assistant message.
    WAV with ffmpeg, and runs `whisper-cli -l <lang>`. Response: `{text}`.
 3. **Ask.** `POST /api/ask {text, conversationId, lang, requestId}`. The agent starts a job and immediately returns
    `{id, status: "running"}`. `requestId` makes the call safe to retry: the same ID returns the job it already
-   started instead of asking twice.
+   started instead of asking twice, with its reply if it has already finished.
 4. **Dispatch.** The agent spawns this command (built by `dispatcherArgs` in `agent/dispatch.mjs`), with
    `dispatcher/` as the working directory:
 
@@ -57,7 +57,9 @@ rest: the title, the last user prompt and the last assistant message.
    ```
 
    `dispatcher/CLAUDE.md` is loaded as its instructions. `agent/bin` is prepended to `PATH`, so the `dashcall` CLI is
-   available, and `DASHCALL_JOB_ID`, `DASHCALL_CONVERSATION_ID` and `DASHCALL_LANGUAGE` are set. The dispatcher runs
+   available, and `DASHCALL_JOB_ID`, `DASHCALL_CONVERSATION_ID` and `DASHCALL_LANGUAGE` are set. `DASHCALL_TOKEN` is
+   removed from its environment: the CLI doesn't need it, and a command like `dashcall send 1 "$DASHCALL_TOKEN"`
+   would pass the allow-list. The dispatcher runs
    commands like `dashcall sessions` or `dashcall send <pane> "..."` and writes a short spoken-style reply. It can't
    run anything else (see [The dispatcher's permissions](#the-dispatchers-permissions)). Runs are killed after
    5 minutes.
@@ -136,7 +138,7 @@ Everything personal stays on the Mac, inside the repo folder, and is git-ignored
 | `dispatcher/brain/brain.json` (`DASHCALL_BRAIN_FILE`) | Agent, `dashcall` CLI | `{memory[], notes[], muted[]}`: facts about you, your notes and reminders, muted sessions and projects |
 | `state/notifications.json` (`DASHCALL_STATE_DIR`) | Agent | The last 200 answers and summaries, including your questions |
 | `state/watches.json` | Agent, `dashcall` CLI | Background tasks: waiting, fired or cancelled |
-| `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors. Questions and transcripts only with `DASHCALL_LOG_CONTENT=1`. |
+| `logs/agent.log` | launchd (stdout and stderr) | Request timings and errors, including Claude Code's error messages for failed dispatcher jobs. Questions, transcripts and dispatcher output that isn't valid JSON only with `DASHCALL_LOG_CONTENT=1`. |
 | `research/` | Sessions started for research | The dispatcher's default folder for research that belongs to no project |
 | `~/.claude/projects/` | Claude Code | Transcripts (Dashcall only reads them). The dispatcher's own conversations are stored here too. |
 

@@ -26,8 +26,9 @@ export function dispatcherArgs({ text, conversationId, model, systemPrompt, root
 // append to the same transcript (a background summary can arrive while the user is talking in that conversation).
 // enqueue(conversationId, run) calls run(sessionId, done) now or once the jobs ahead have finished, and returns true
 // if the job had to wait. The job calls done(newSessionId) when it ends; the next one resumes that id, so it still
-// works if Claude ever hands back a new session id. Jobs without a conversation never wait.
-export function conversationQueue() {
+// works if Claude ever hands back a new session id. Jobs without a conversation never wait. onError hears about a job
+// that throws instead of calling done; its conversation moves on regardless.
+export function conversationQueue(onError = () => {}) {
   const lanes = new Map(); // conversation or session id -> { sid, busy, waiting: [run], keys: Set }
   function next(lane) {
     const run = lane.waiting.shift();
@@ -39,7 +40,7 @@ export function conversationQueue() {
       if (sid && sid !== lane.sid) { lane.sid = sid; lane.keys.add(sid); lanes.set(sid, lane); }
       next(lane);
     };
-    try { run(lane.sid, done); } catch { done(); } // a job that throws must not block its conversation for good
+    try { run(lane.sid, done); } catch (e) { onError(e); done(); } // a job that throws must not block its conversation for good
   }
   return function enqueue(conversationId, run) {
     if (!conversationId) { run(null, () => {}); return false; }
