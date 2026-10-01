@@ -7,6 +7,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Sessions:** 1, 2, 3 and Enter buttons answer permission and menu prompts (one key at a time, so a double tap
+  can't also answer the next prompt), and a finished session from the last 48 hours opens read-only with its last
+  prompt and reply.
+- **Home screen app:** a web app manifest and icons, so "Add to Home Screen" opens Dashcall full screen with its own
+  icon (there is no offline mode).
+
+### Changed
+
+- **After updating, run `./scripts/download-model.sh`:** it skips the whisper model you have and fetches the new VAD
+  model (under 1 MB). Without it speech-to-text still works, and the agent log says so once. The default VAD model
+  needs whisper.cpp 1.8.3 or newer (`DASHCALL_WHISPER_VAD_MODEL` picks another model or `off`); a whisper-cli too
+  old for the new flags is now reported as an error instead of every recording coming back empty.
+- **Folder mutes match whole folder names or paths:** muting `api` no longer hides `~/rapid-x` or `~/capital`. A mute
+  that relied on part of a folder name (say, `trader` for `edge-trader`) no longer matches anything, so mute again
+  with the full folder name or path. Sessions report which mute hides them (`mutedBy`), and Unmute removes that exact
+  key. The Sessions tab's polls are served from a transcript summary cache, and a folder named `..x` inside the
+  workspace root can now be used for a new session.
+- **Every device has to log in once after updating:** session cookies issued by 0.1.0 are no longer accepted. Rebuild
+  the web image (`docker compose up -d --build`), because it now also contains `web/totp.mjs`.
+- **Long replies start talking sooner:** a reply of more than 200 characters is synthesized in segments, so the first
+  sentence can play while the rest is still being synthesized, instead of only after the whole reply's audio has
+  arrived. If edge-tts fails for one segment, the agent reads that segment with macOS `say`; if a segment's request
+  fails, the browser's own voice reads the rest. A reply is still read for at most about 4000 characters.
+- The full-text sheet can be opened from any tab, keeps keyboard focus inside while open and returns it on close.
+  The session view fits the screen, with the reply box always visible.
+
 ### Fixed
 
 - A state file that isn't valid JSON (say, `brain.json` after a hand edit with a typo) is never written over any
@@ -29,24 +57,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   notification while a question is being answered is refused instead of taking over the conversation, and a
   microphone that fails to start is released.
 
-### Changed
-
-- **After updating, run `./scripts/download-model.sh`:** it skips the whisper model you have and fetches the new VAD
-  model (under 1 MB). Without it speech-to-text still works, and the agent log says so once. The default VAD model
-  needs whisper.cpp 1.8.3 or newer (`DASHCALL_WHISPER_VAD_MODEL` picks another model or `off`); a whisper-cli too
-  old for the new flags is now reported as an error instead of every recording coming back empty.
-- **Folder mutes match whole folder names or paths:** muting `api` no longer hides `~/rapid-x` or `~/capital`. A mute
-  that relied on part of a folder name (say, `trader` for `edge-trader`) no longer matches anything, so mute again
-  with the full folder name or path. Sessions report which mute hides them (`mutedBy`), and Unmute removes that exact
-  key. The Sessions tab's polls are served from a transcript summary cache, and a folder named `..x` inside the
-  workspace root can now be used for a new session.
-- **Every device has to log in once after updating:** session cookies issued by 0.1.0 are no longer accepted. Rebuild
-  the web image (`docker compose up -d --build`), because it now also contains `web/totp.mjs`.
-- **Long replies start talking sooner:** a reply of more than 200 characters is synthesized in segments, so the first
-  sentence can play while the rest is still being synthesized, instead of only after the whole reply's audio has
-  arrived. If edge-tts fails for one segment, the agent reads that segment with macOS `say`; if a segment's request
-  fails, the browser's own voice reads the rest. A reply is still read for at most about 4000 characters.
-
 ### Security
 
 - **Optional two-factor login:** with `DASHCALL_TOTP_SECRET` set, logging in also needs the 6-digit code of an
@@ -55,6 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Global login limit:** besides 10 failed logins per IP, at most 30 from all IPs together per 15 minutes.
 - **Logins expire and can be revoked:** a login now lasts `DASHCALL_SESSION_DAYS` (30) days after the device last
   used the app, instead of a fixed year, and raising `DASHCALL_SESSION_EPOCH` signs out every device.
+- The CSP no longer allows inline styles (`style-src 'self'`).
 
 ## [0.1.0] - 2026-09-30
 

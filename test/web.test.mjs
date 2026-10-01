@@ -1,6 +1,7 @@
 // Spawns web/server.mjs in front of a stub agent and checks login, auth, proxying and hardening.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createHmac } from 'node:crypto';
 import { startServer } from './helpers.mjs';
@@ -62,6 +63,54 @@ test('the login page can load its scripts, styles and translations', async () =>
   }
   assert.match((await fetch(base + '/i18n.js')).headers.get('content-type'), /javascript/);
   assert.match(await (await fetch(base + '/app.js')).text(), /type="password"/, 'the app itself needs a login');
+});
+
+test('the PWA manifest and its icons are public, so "add to home screen" works', async () => {
+  const r = await fetch(base + '/manifest.webmanifest'); // browsers fetch it without cookies
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /^application\/manifest\+json/);
+  const m = await r.json();
+  assert.equal(m.start_url, '/'); assert.equal(m.display, 'standalone'); assert.equal(m.short_name, 'Dashcall');
+  assert.ok(m.icons.some(i => i.sizes === '512x512' && i.purpose === 'maskable'), 'a maskable icon for Android');
+  for (const icon of [...m.icons, { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }]) {
+    const res = await fetch(base + icon.src);
+    assert.equal(res.status, 200, icon.src);
+    assert.equal(res.headers.get('content-type'), icon.type, icon.src);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (icon.type === 'image/png') assert.equal(`${buf.readUInt32BE(16)}x${buf.readUInt32BE(20)}`, icon.sizes, icon.src); // IHDR width x height
+  }
+  const cookie = cookieOf(await login(PASSWORD));
+  for (const page of [await fetch(base + '/'), await fetch(base + '/', { headers: { cookie } })]) {
+    const html = await page.text();
+    assert.match(html, /<link rel="manifest" href="\/manifest\.webmanifest">/);
+    assert.match(html, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png">/);
+  }
+});
+
+test('the session detail fills the screen but can grow, so the composer never ends up behind the tab bar', () => {
+  // A fixed height clipped the composer under the phone tab bar on small screens (320x568), with no way to scroll to it.
+  const css = readFileSync(new URL('../web/public/style.css', import.meta.url), 'utf8');
+  const rules = [...css.matchAll(/#detail:not\(\[hidden\]\)\s*\{([^}]*)\}/g)].map(m => m[1]);
+  assert.ok(rules.length >= 2, 'a desktop and a phone rule');
+  for (const r of rules) {
+    assert.match(r, /min-height:\s*calc\(100dvh/);
+    assert.doesNotMatch(r, /(^|[^-])height:/, 'no fixed height');
+  }
+});
+
+test('the CSP allows no inline scripts or styles, and no page needs them', async () => {
+  const csp = (await fetch(base + '/')).headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /style-src 'self';/);
+  assert.doesNotMatch(csp, /unsafe-/);
+  // style="…" (also inside innerHTML templates), inline <script> and on…="…" handlers would all be blocked
+  const dir = new URL('../web/public/', import.meta.url);
+  for (const f of readdirSync(dir).filter(f => /\.(html|js)$/.test(f))) {
+    const src = readFileSync(new URL(f, dir), 'utf8');
+    assert.doesNotMatch(src, /\sstyle=/, f);
+    assert.doesNotMatch(src, /\son[a-z]+=["']/, f);
+    assert.doesNotMatch(src, /<script(?![^>]*\ssrc=)[^>]*>/, f);
+  }
 });
 
 test('login sets a secure cookie that unlocks the proxied API', async () => {

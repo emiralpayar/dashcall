@@ -2,6 +2,9 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b0d10">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dashcall"><meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Dashcall</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/style.css">
 </head><body>
 <div class="app">
@@ -49,12 +52,6 @@
           </form>
         </div>
       </div>
-      <div id="sheet" class="sheet" hidden>
-        <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-          <div class="sheet-h"><h2 id="sheet-title"></h2><button id="sheet-close" class="btn ghost" data-i18n-aria-label="common.close">✕</button></div>
-          <div id="sheet-body" class="sheet-body"></div>
-        </div>
-      </div>
     </section>
 
     <!-- SESSIONS -->
@@ -76,12 +73,18 @@
           <h2 id="d-title"></h2>
           <button id="d-mute" class="btn ghost" data-i18n="sessions.mute">Mute</button>
           <button id="d-esc" class="btn danger" data-i18n="sessions.stop">Stop (Esc)</button>
+          <div id="d-keys" class="keys" role="group" data-i18n-aria-label="sessions.keys">
+            <button class="btn key" data-key="1" data-i18n-aria-label="sessions.key1">1</button>
+            <button class="btn key" data-key="2" data-i18n-aria-label="sessions.key2">2</button>
+            <button class="btn key" data-key="3" data-i18n-aria-label="sessions.key3">3</button>
+            <button class="btn key" data-key="enter" data-i18n="sessions.enter" data-i18n-aria-label="sessions.keyEnter">Enter</button>
+          </div>
         </div>
         <pre id="screen" class="screen"></pre>
         <form id="composer" class="composer">
           <textarea id="d-text" data-i18n-placeholder="sessions.composer"></textarea>
           <button type="button" class="btn mic" data-mic="d-text" data-i18n-aria-label="common.dictate"></button>
-          <button class="btn primary" style="height:56px" data-i18n="common.send">Send</button>
+          <button class="btn primary" data-i18n="common.send">Send</button>
         </form>
       </div>
     </section>
@@ -89,13 +92,13 @@
     <!-- NEW -->
     <section class="view" id="v-new" hidden>
       <form id="newform" class="form">
-        <h2 style="margin:0" data-i18n="new.title">Start a new job</h2>
+        <h2 data-i18n="new.title">Start a new job</h2>
         <label for="n-dir" data-i18n="new.folder">Folder</label>
         <select id="n-dir"></select>
         <input id="n-custom" data-i18n-placeholder="new.customPath">
         <label for="n-prompt" data-i18n="new.what">What should it do?</label>
         <div class="row">
-          <textarea id="n-prompt" data-i18n-placeholder="new.task" style="min-height:160px"></textarea>
+          <textarea id="n-prompt" data-i18n-placeholder="new.task"></textarea>
           <button type="button" class="btn mic" data-mic="n-prompt" data-i18n-aria-label="common.dictate"></button>
         </div>
         <button id="n-go" class="btn primary big" data-i18n="new.start">Start</button>
@@ -114,7 +117,7 @@
           <div class="section-h"><h2 data-i18n="brain.memory">Memory</h2></div>
           <form id="memform" class="row"><input id="mem-in" data-i18n-placeholder="brain.addMemory" autocomplete="off"><button class="btn primary" data-i18n="common.add">Add</button></form>
           <ul id="memory" class="items"></ul>
-          <div class="section-h" style="margin-top:24px"><h2 data-i18n="brain.muted">Muted</h2></div>
+          <div class="section-h"><h2 data-i18n="brain.muted">Muted</h2></div>
           <ul id="muted" class="items"></ul>
         </div>
       </div>
@@ -125,6 +128,13 @@
       <div id="nlist" class="nlist"></div>
     </section>
   </main>
+  <!-- SHEET: full text, history, a past session (outside the views, so any tab can open it) -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-h"><h2 id="sheet-title"></h2><button id="sheet-close" class="btn ghost" data-i18n-aria-label="common.close">✕</button></div>
+      <div id="sheet-body" class="sheet-body" tabindex="0"></div>
+    </div>
+  </div>
   <div id="npop" class="npop" hidden role="status" aria-live="polite">
     <div class="npop-body"><div id="npop-title" class="npop-title"></div><div id="npop-text" class="npop-text"></div></div>
     <div class="npop-actions"><button id="npop-open" class="btn primary" data-i18n="notifs.listen">Listen</button><button id="npop-close" class="btn ghost" data-i18n="notifs.later">Later</button></div>

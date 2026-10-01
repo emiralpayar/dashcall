@@ -24,9 +24,12 @@ Dashcall has four parts. None of them has npm dependencies.
 | **TTS helper** | `tts/speak.py` | Spawned by the agent | Calls edge-tts and returns MP3 audio plus word timings for synced subtitles. |
 
 The single-page app has five views: **Drive** (talk button, subtitles, typed input), **Sessions** (live and recent
-sessions, terminal view, prompt, Esc, mute), **New job**, **Brain** (notes, memory, muted) and **Notifications**. On
-wide screens the tabs sit in the header; on phones they become a bottom bar within thumb reach. All UI strings live in
-`web/public/i18n.js` in English and Turkish, and `test/i18n.test.mjs` checks that both languages stay complete.
+sessions, terminal view, prompt, Esc, 1/2/3/Enter quick keys for permission and menu prompts, mute; a recent session
+that is no longer running opens read-only with its last prompt and reply), **New job**, **Brain** (notes, memory,
+muted) and **Notifications**. On wide screens the tabs sit in the header; on phones they become a bottom bar within
+thumb reach. All UI strings live in `web/public/i18n.js` in English and Turkish, and `test/i18n.test.mjs` checks that
+both languages stay complete. `manifest.webmanifest` makes the app installable on the home screen (standalone, own
+icon; there is no service worker, so it needs a connection like the browser version).
 
 ### Why herdr?
 
@@ -261,8 +264,10 @@ no checks. It is unsafe; use it only to rule out the permission setup while debu
   is counted before the request body is read, so parallel requests can't slip past either limit.
 - **CSRF:** non-GET API calls and the login must be same-origin (checked with `Sec-Fetch-Site` and `Origin` against
   `Host`).
-- **Headers:** a strict CSP without inline scripts, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, and
-  microphone access for the page itself only.
+- **Headers:** a strict CSP without inline scripts or styles (`test/web.test.mjs` checks the pages need none),
+  `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, and microphone access for the page itself only. Signed out, only
+  the login page and what it loads are served, plus the web app manifest and its icons (browsers fetch those without
+  cookies).
 - **Web app to agent:** the web app listens on `127.0.0.1` by default (`HOST`). If the agent rejects its token, the
   browser gets `502 agent_auth`, not a `401`, so a server misconfiguration never looks like an expired login.
 - **Agent:** reachable only on a private address, with a constant-time bearer token check. The request body limit is

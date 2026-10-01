@@ -278,7 +278,7 @@ unmuted. Errors: `key_required`, `not_found`.
 | `GET /login/config` | none | `{"totp": true}` when two-factor login is on (`DASHCALL_TOTP_SECRET`), so the login page shows the code field. |
 | `POST /logout` | same-origin | Clears the session cookie (204). |
 | `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent. Errors: `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |
-| `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`. |
+| `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`, plus the web app manifest and its icons (`/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`, `/apple-touch-icon.png`), which browsers fetch without cookies. |
 
 All static responses carry the security headers described in [ARCHITECTURE.md](ARCHITECTURE.md#security-model-briefly).
 When a request carries a valid cookie that was issued more than a day ago, its response (static file, `/api/*` or
