@@ -29,6 +29,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   with the full folder name or path. Sessions report which mute hides them (`mutedBy`), and Unmute removes that exact
   key. The Sessions tab's polls are served from a transcript summary cache, and a folder named `..x` inside the
   workspace root can now be used for a new session.
+- **Every device has to log in once after updating:** session cookies issued by 0.1.0 are no longer accepted. Rebuild
+  the web image (`docker compose up -d --build`), because it now also contains `web/totp.mjs`.
+
+### Security
+
+- **Optional two-factor login:** with `DASHCALL_TOTP_SECRET` set, logging in also needs the 6-digit code of an
+  authenticator app (RFC 6238; each code works once). `node scripts/totp-secret.mjs` makes a secret. The web app
+  refuses to start with an invalid secret.
+- **Global login limit:** besides 10 failed logins per IP, at most 30 from all IPs together per 15 minutes.
+- **Logins expire and can be revoked:** a login now lasts `DASHCALL_SESSION_DAYS` (30) days after the device last
+  used the app, instead of a fixed year, and raising `DASHCALL_SESSION_EPOCH` signs out every device.
 
 ## [0.1.0] - 2026-09-30
 

@@ -159,8 +159,9 @@ Code. The password is the whole perimeter.
 - The dispatcher runs with `--dangerously-skip-permissions` so it can use the `dashcall` CLI unattended. Text it reads
   (session output, research results, a misheard transcript) can contain prompt injections.
 - Keep the agent on a private network (Tailscale) and never expose it publicly. Every request needs the bearer token.
-- The web app has a rate-limited password login, signed HttpOnly cookies, same-origin checks on API writes and a
-  strict Content Security Policy. Serve it over HTTPS only.
+- The web app has a rate-limited password login with optional two-factor codes (`DASHCALL_TOTP_SECRET`), signed
+  HttpOnly cookies that expire after 30 days without use, same-origin checks on API writes and a strict Content
+  Security Policy. Serve it over HTTPS only.
 - New sessions can only start under `DASHCALL_WORKSPACE_ROOT`, which defaults to your home directory.
 
 Details are in [SECURITY.md](SECURITY.md). Please report vulnerabilities privately, as described there.
