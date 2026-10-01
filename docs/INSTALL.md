@@ -108,23 +108,30 @@ bindings. To check what Dashcall will see, run `herdr agent list`.
 ```sh
 brew install ffmpeg whisper-cpp
 which ffmpeg whisper-cli     # both should print a path
+brew list --versions whisper-cpp   # 1.8.3 or newer; if older: brew upgrade whisper-cpp
 ```
+
+Dashcall uses whisper.cpp's voice activity detection, which needs whisper.cpp 1.7.6 or newer (1.8.3 or newer for the
+default VAD model).
 
 Neural voices come from [edge-tts](https://github.com/rany2/edge-tts), which runs in a small Python virtual
 environment. You install it in the next step, after cloning. It is optional: without it the agent uses macOS `say`.
 
 ## 3. Mac: Dashcall agent
 
-### Clone and download the speech model
+### Clone and download the speech models
 
 ```sh
 git clone https://github.com/emiralpayar/dashcall.git
 cd dashcall
-./scripts/download-model.sh     # ggml-large-v3-turbo-q5_0.bin, about 574 MB, into models/
+./scripts/download-model.sh     # into models/: ggml-large-v3-turbo-q5_0.bin (about 574 MB)
+                                # and the ggml-silero-v6.2.0.bin VAD model (under 1 MB)
 ```
 
-To try a different whisper.cpp model, pass its file name (for example `./scripts/download-model.sh ggml-base.bin`)
-and set `DASHCALL_WHISPER_MODEL` to match.
+The VAD (voice activity detection) model makes whisper skip silence and background noise, which it would otherwise
+sometimes turn into made-up text. To try a different whisper.cpp model, pass its file name (for example
+`./scripts/download-model.sh ggml-base.bin`) and set `DASHCALL_WHISPER_MODEL` to match. A second argument picks
+another VAD model; see `DASHCALL_WHISPER_VAD_MODEL` in [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Neural voices (optional, recommended)
 
@@ -342,6 +349,7 @@ Using another proxy, such as nginx or Traefik? Make sure it:
 ```sh
 cd /path/to/dashcall
 git pull
+./scripts/download-model.sh   # fetches models a new version needs; skips the ones you have
 launchctl kickstart -k gui/$(id -u)/com.dashcall.agent
 ```
 

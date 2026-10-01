@@ -19,7 +19,7 @@ Dashcall has four parts. None of them has npm dependencies.
 | Part | Files | Runs on | Job |
 | --- | --- | --- | --- |
 | **Web app** | `web/server.mjs`, `web/public/` | Any server (Docker image `node:22-alpine`) | Password login, signed cookie, security headers, serves the single-page app, forwards `/api/*` to the agent with the bearer token. Holds no state apart from the login rate limit. |
-| **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
+| **Agent** | `agent/server.mjs`, `agent/dispatch.mjs`, `agent/stt-text.mjs`, `agent/lib.mjs`, `agent/brain.mjs`, `agent/store.mjs`, `agent/prompts.mjs`, `agent/lang.mjs`, `agent/errors.mjs`, `agent/config.mjs` | The Mac with your sessions | HTTP API. Talks to herdr, reads Claude Code transcripts in `~/.claude/projects`, runs the dispatcher, transcribes and synthesizes speech, watches background tasks. |
 | **Dispatcher** | `dispatcher/CLAUDE.md`, `agent/bin/dashcall` | Spawned by the agent | A headless `claude -p` per question that works out what the user means and acts through the `dashcall` CLI, the only command it is allowed to run. |
 | **TTS helper** | `tts/speak.py` | Spawned by the agent | Calls edge-tts and returns MP3 audio plus word timings for synced subtitles. |
 
@@ -41,7 +41,8 @@ rest: the title, the last user prompt and the last assistant message.
    3.5 seconds of silence, at 2 minutes, when the user taps again, or after 12 seconds if no speech is heard at all.
 2. **Transcribe.** `POST /api/stt?lang=en` with the raw audio body. The web app checks the cookie and forwards the
    request. The agent accepts only WebM, Ogg, MP4 or WAV (it checks magic bytes), converts the audio to 16 kHz mono
-   WAV with ffmpeg, and runs `whisper-cli -l <lang>`. Response: `{text}`.
+   WAV with ffmpeg, and runs `whisper-cli -l <lang>` with Silero voice activity detection, so only speech reaches
+   whisper. `agent/stt-text.mjs` then drops known silence hallucinations and repeated sentences. Response: `{text}`.
 3. **Ask.** `POST /api/ask {text, conversationId, lang, requestId}`. The agent starts a job and immediately returns
    the same view as a poll (step 5), for a new job `{id, status: "running", lang, elapsed}`. `requestId` makes the
    call safe to retry: the same ID returns the job it already started instead of asking twice, with its reply if it
