@@ -16,7 +16,7 @@ const squash = s => s.replace(/\s+/g, ' ').trim();
 // `autoEnd`: every segment plays to its end by itself. `lateAbort`: requests ignore the abort, like the real api()
 // once the response headers are in (the body still arrives).
 function load({ reply = () => audio(), autoEnd = true, silent = false, lateAbort = false } = {}) {
-  const log = [], calls = [], states = [], urls = { made: 0, revoked: [] };
+  const log = [], calls = [], states = [], langs = [], urls = { made: 0, revoked: [] };
   let now = 0;
   const player = {
     _src: '', paused: true, ended: false, currentTime: 0, duration: NaN,
@@ -50,7 +50,7 @@ function load({ reply = () => audio(), autoEnd = true, silent = false, lateAbort
     },
     player, speechSynthesis: synth,
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
-    buildChunks: (raw, words, duration) => { log.push(['chunks', raw, words, duration]); return [{ t: 0, text: raw }]; },
+    buildChunks: (raw, words, duration, lang) => { log.push(['chunks', raw, words, duration]); langs.push(lang); return [{ t: 0, text: raw }]; },
     runSubtitles: (chunks, clock) => { log.push(['subs', chunks[0]?.text, clock()]); },
     stopSubtitles: () => { log.push(['stopsubs']); },
     spoken: t => String(t ?? '').replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2'),
@@ -68,7 +68,7 @@ function load({ reply = () => audio(), autoEnd = true, silent = false, lateAbort
   vm.runInContext(block + '\nthis.__silent = { get: () => silent, set: v => { silent = v; } };', ctx);
   ctx.__silent.set(silent);
   const say = (text, lang) => ctx.speak(text, s => states.push(s), lang);
-  return { ctx, say, log, calls, states, player, synth, urls, plays: () => log.filter(l => typeof l === 'string' && l.startsWith('play')).length };
+  return { ctx, say, log, calls, states, langs, player, synth, urls, plays: () => log.filter(l => typeof l === 'string' && l.startsWith('play')).length };
 }
 const audio = (words = [{ t: 0, d: 0.2, w: 'x' }]) => ({ engine: 'neural', mime: 'audio/mpeg', audio: Buffer.from('mp3').toString('base64'), words });
 const segmentsIn = load().ctx.speechSegments;
@@ -313,4 +313,14 @@ test('speak: the local voice (no word timings) plays each segment with estimated
   const chunks = t.log.filter(l => l[0] === 'chunks');
   assert.equal(chunks.length, segmentsOf(LONG).length);
   assert.ok(chunks.every(c => c[2].length === 0 && c[3] === 3));
+});
+
+test('speak: subtitles match words in the reply\'s language, not the UI language', async () => {
+  const segs = segmentsOf(LONG);
+  const t = load({ reply: c => { if (c.text === segs[1]) throw new Error('HTTP 502'); return audio(); } });
+  assert.equal(await t.say(LONG, 'en'), true); // the fake UI language is tr
+  assert.deepEqual([...t.langs], ['en', 'en'], 'segment 1 on the player, then the browser voice for the rest');
+  const s = load({ reply: () => ({ engine: 'silent', audio: null, words: [] }) });
+  assert.equal(await s.say(LONG, 'en'), true);
+  assert.deepEqual([...s.langs], ['en']);
 });

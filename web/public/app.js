@@ -113,9 +113,9 @@ let speakAbort = null; // aborts the segment requests of the current speak()
 let playerUrl = null;
 // Silent mode (demo/development, announced by the agent): subtitles run on a timer and nothing makes a sound.
 let silent = false;
-async function silentSubtitles(text, gen) {
+async function silentSubtitles(text, gen, lang) {
   const dur = Math.max(2, spoken(text).length / 14), t0 = performance.now();
-  runSubtitles(buildChunks(text, null, dur), () => (performance.now() - t0) / 1000);
+  runSubtitles(buildChunks(text, null, dur, lang), () => (performance.now() - t0) / 1000);
   while (gen === speakGen && performance.now() - t0 < dur * 1000) await sleep(100);
 }
 // Long replies are synthesized in segments so the first sentence plays while the rest is still being made: the
@@ -184,7 +184,7 @@ async function speak(text, onState, lang = getLang()) {
       if (d?.engine === 'silent') { silent = true; throw new Error('silent'); }
       if (!d?.audio) throw new Error('no audio'); // no neural voice available: use the browser's
       request(i + 1); // one segment ahead: synthesized while this one plays
-      const ended = await playSegment(segs[i], d, gen);
+      const ended = await playSegment(segs[i], d, gen, lang);
       if (gen !== speakGen) return false;
       if (!ended) break; // paused from outside (another app took the audio): stop, as a single reply would
     }
@@ -193,10 +193,10 @@ async function speak(text, onState, lang = getLang()) {
     ctl.abort(); // the browser speaks the rest: cancel the segment requests not answered yet
     if (gen !== speakGen) return false;
     const rest = i ? segs.slice(i).join(' ') : text; // a segment that fails mid-reply hands over from that segment on
-    if (silent) await silentSubtitles(rest, gen);
+    if (silent) await silentSubtitles(rest, gen, lang);
     // fallback: browser TTS, subtitles paced by elapsed time
     else if ('speechSynthesis' in window) {
-      const chunks = buildChunks(rest, null, 0), t0 = performance.now();
+      const chunks = buildChunks(rest, null, 0, lang), t0 = performance.now();
       runSubtitles(chunks, () => (performance.now() - t0) / 1000);
       await new Promise(res => {
         const u = new SpeechSynthesisUtterance(spoken(rest)); u.lang = LOCALES[lang] || speechLang(); u.onend = res; u.onerror = res;
@@ -212,13 +212,13 @@ async function speak(text, onState, lang = getLang()) {
 // Plays one segment on the shared player, which a tap unlocked (a new Audio element could be blocked by autoplay
 // rules in car and iOS browsers), with subtitles on that segment's own clock. True if it played to the end, false
 // if it was paused before; throws if it can't play, so the browser voice takes over from this segment.
-async function playSegment(raw, d, gen) {
+async function playSegment(raw, d, gen, lang) {
   const bytes = Uint8Array.from(atob(d.audio), c => c.charCodeAt(0));
   if (playerUrl) URL.revokeObjectURL(playerUrl);
   player.src = playerUrl = URL.createObjectURL(new Blob([bytes], { type: d.mime || 'audio/mpeg' }));
   await new Promise(res => { player.onloadedmetadata = res; player.onerror = res; setTimeout(res, 1500); });
   if (gen !== speakGen) return false;
-  const chunks = buildChunks(raw, d.words, isFinite(player.duration) ? player.duration : 0);
+  const chunks = buildChunks(raw, d.words, isFinite(player.duration) ? player.duration : 0, lang);
   // At the end 'pause' fires just before 'ended' (same task): only a pause that 'ended' doesn't follow counts.
   const end = new Promise(res => {
     player.onended = () => res('ended'); player.onerror = () => res('error');

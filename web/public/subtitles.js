@@ -2,8 +2,9 @@
 // reads these names from the shared global scope, with pure functions only, so test/subtitles.test.mjs can load it
 // with node:vm.
 
-// Words are matched in the UI language (Turkish I/ı lowercase differently). getLang() comes from i18n.js when the
-// page loads it; on its own (tests) the default locale is used.
+// Words are matched in the reply's language when the caller passes it (speak() does), else in the UI language
+// (Turkish I/ı lowercase differently). getLang() comes from i18n.js when the page loads it; on its own (tests) the
+// default locale is used.
 const subtitleLang = () => typeof getLang === 'function' ? getLang() : undefined;
 const norm = (w, lang = subtitleLang()) => w.toLocaleLowerCase(lang).replace(/[^\p{L}\p{N}]/gu, '');
 // Pronunciation markup from the dispatcher: [[written|spoken]] — show `written`, speak `spoken`.
