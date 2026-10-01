@@ -386,11 +386,13 @@ document.addEventListener('keydown', e => {
   if ($('sheet').hidden) return;
   if (e.key === 'Escape') return closeSheet();
   if (e.key !== 'Tab') return;
-  // aria-modal doesn't stop Tab from wandering into the page behind: wrap around inside the sheet instead
-  const f = [...$('sheet').querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  // aria-modal doesn't stop Tab from wandering into the page behind: wrap around inside the sheet instead.
+  // A notification popup floats above the sheet and can be tapped, so it stays reachable by keyboard too.
+  const zone = [$('sheet'), $('npop')].filter(z => !z.hidden);
+  const f = zone.flatMap(z => [...z.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')])
     .filter(x => !x.disabled && x.getClientRects().length);
   const first = f[0], last = f[f.length - 1], at = document.activeElement;
-  if (!$('sheet').contains(at)) { e.preventDefault(); first.focus(); }
+  if (!zone.some(z => z.contains(at))) { e.preventDefault(); first.focus(); }
   else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
 });
@@ -733,7 +735,8 @@ function popup(n, extra = 0) {
   clearTimeout(popTimer); popTimer = setTimeout(() => $('npop').hidden = true, 20000);
 }
 $('npop-close').onclick = () => { $('npop').hidden = true; };
-$('npop-open').onclick = () => { $('npop').hidden = true; if (popFor) openNotif(popFor); };
+// the sheet overlays every view: close it, or it would hide the Drive screen that is about to read this aloud
+$('npop-open').onclick = () => { $('npop').hidden = true; closeSheet(); if (popFor) openNotif(popFor); };
 
 async function pollNotifs() {
   try {

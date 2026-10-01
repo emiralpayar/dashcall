@@ -1,9 +1,9 @@
 // Spawns web/server.mjs in front of a stub agent and checks login, auth, proxying and hardening.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createHmac } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
 import { startServer } from './helpers.mjs';
 import { base32Encode, hotp, STEP } from '../web/totp.mjs';
 
