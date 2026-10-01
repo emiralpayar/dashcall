@@ -239,8 +239,8 @@ site settings (on iOS: Settings → Safari → Microphone).
 
 The microphone takes one voice input at a time. A dictation button doesn't start while Drive mode is listening,
 transcribing or waiting for an answer, and the talk button doesn't start while a dictation is recording or being
-transcribed. Wait a moment and tap again. A failed dictation only shows a message; **Resend** in Drive mode is for
-Drive-mode recordings only.
+transcribed. Wait a moment and tap again, or tap the lit dictation button to cancel a dictation that is still being
+transcribed. A failed dictation only shows a message; **Resend** in Drive mode is for Drive-mode recordings only.
 
 ### No sound on iPhone, iPad or in the car
 

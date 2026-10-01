@@ -7,7 +7,10 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const read = f => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
-const SRC = { html: read('web/public/index.html'), i18n: read('web/public/i18n.js'), app: read('web/public/app.js') };
+const HTML = read('web/public/index.html');
+// The page's own scripts, in document order, so the harness keeps up when scripts are added or split.
+const SCRIPTS = [...HTML.matchAll(/<script\b[^>]*\bsrc="\/([\w.-]+\.js)"/g)].map(m => 'web/public/' + m[1]).map(f => [f, read(f)]);
+if (!SCRIPTS.some(([f]) => f === 'web/public/app.js')) throw new Error('index.html no longer loads /app.js');
 const FAST = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const CONV_A = '11111111-1111-4111-8111-111111111111', CONV_N = '22222222-2222-4222-8222-222222222222';
@@ -40,7 +43,7 @@ class El {
 
 function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
   const dom = { all: new Set(), byId: new Map(), toasts: [] };
-  for (const m of SRC.html.matchAll(/<([a-z][\w-]*)\b([^>]*)>/gi)) {
+  for (const m of HTML.matchAll(/<([a-z][\w-]*)\b([^>]*)>/gi)) {
     const attrs = Object.fromEntries([...m[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map(a => [a[1], a[2] ?? '']));
     const el = new El(dom, m[1], attrs);
     dom.all.add(el); if (attrs.id) dom.byId.set(attrs.id, el);
@@ -136,8 +139,7 @@ function boot({ routes = {}, crypto = globalThis.crypto } = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext('Date.now = __now;', ctx);
-  vm.runInContext(SRC.i18n, ctx, { filename: 'web/public/i18n.js' });
-  vm.runInContext(SRC.app, ctx, { filename: 'web/public/app.js' });
+  for (const [filename, src] of SCRIPTS) vm.runInContext(src, ctx, { filename });
 
   const $ = id => dom.byId.get(id);
   return {
@@ -278,6 +280,27 @@ test('dictation stays out of drive mode: failures are toasts, and one voice inpu
     await h.until(() => !mic.classList.contains('on'), 'the transcript');
     assert.equal(field.value, 'note: hello there');
     assert.equal(h.$('resend').hidden, false, "the drive recording is still there to resend");
+  } finally { h.close(); }
+});
+
+test("a dictation's upload can be cancelled from its button, so it can't hold drive mode up", async () => {
+  const h = boot({ routes: { 'POST /stt': () => new Promise(() => {}) } }); // whisper never answers
+  try {
+    const mic = h.mics()[0];
+    mic.onclick();
+    await h.until(h.recording, 'the dictation to record');
+    mic.onclick(); // send
+    await h.until(() => h.calls('POST /stt').length === 1, 'the upload');
+    h.$('talk').onclick();
+    assert.match(h.lastToast(), /Voice input is busy/);
+    mic.onclick(); // still lit: cancel the upload
+    await h.until(() => !mic.classList.contains('on'), 'the dictation to stop');
+    assert.equal(h.lastToast(), 'Cancelled');
+    assert.equal(h.calls('POST /stt').length, 1, 'a cancelled upload is not retried');
+    assert.equal(h.get('dictCtl'), null);
+    h.$('talk').onclick(); // drive mode is free again
+    await h.until(h.recording, 'drive mode to record');
+    assert.equal(h.get('driveState'), 'listening');
   } finally { h.close(); }
 });
 

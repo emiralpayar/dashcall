@@ -231,6 +231,7 @@ function webSpeechListen() {
 let activeListen = null;
 // Upload a recording for transcription, retrying once. Only drive mode (`drive`) keeps a failed recording for the
 // Resend button and lets the talk button cancel it: a failed dictation must not turn into a drive-mode question.
+// A dictation's upload is cancelled from its own (lit) mic button instead, through dictCtl.
 let pendingAudio = null;
 async function transcribe(blob, drive = false) {
   if (drive) { pendingAudio = blob; renderResend(); }
@@ -239,7 +240,7 @@ async function transcribe(blob, drive = false) {
   const timeout = Math.min(110000, 30000 + blob.size / 10);
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctl = new AbortController();
-    if (drive) inflight = ctl;
+    if (drive) inflight = ctl; else dictCtl = ctl;
     try {
       const d = await api('/stt?lang=' + getLang(), { method: 'POST', headers: { 'content-type': blob.type || 'audio/webm' }, body: blob, timeout, signal: ctl.signal });
       if (drive) { pendingAudio = null; renderResend(); }
@@ -250,7 +251,7 @@ async function transcribe(blob, drive = false) {
       if (ctl.signal.aborted || e.timedOut) break;
       await sleep(1500);
       if (ctl.signal.aborted) { lastErr = cancelled(); break; } // cancelled during the pause before the retry
-    } finally { if (inflight === ctl) inflight = null; }
+    } finally { if (inflight === ctl) inflight = null; if (dictCtl === ctl) dictCtl = null; }
   }
   throw Object.assign(new Error(t('drive.sttFailed', { msg: lastErr.message })), { code: lastErr.code });
 }
@@ -409,18 +410,19 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // ---------- dictation mic buttons ----------
 // One voice input at a time: dictation and drive mode share the mic (and activeListen), so neither starts while the
 // other is busy. A failed dictation is only a toast; it never becomes a drive-mode Resend.
-let dictating = false; // from tap to transcript
+let dictating = false, dictCtl = null; // from tap to transcript; the dictation's STT upload (see transcribe())
 document.querySelectorAll('[data-mic]').forEach(b => {
   b.innerHTML = MIC_SVG;
   b.onclick = async () => {
-    if (b.classList.contains('on')) return activeListen?.stop();
+    // tapping the lit button sends the recording, or cancels its upload (which would otherwise block drive mode)
+    if (b.classList.contains('on')) return activeListen ? activeListen.stop() : dictCtl?.abort();
     if (dictating || DRIVE_BUSY.has(driveState)) return toast('common.voiceBusy');
     dictating = true; b.classList.add('on');
     try {
       const text = await listen();
       const ta = $(b.dataset.mic);
       if (text) ta.value = (ta.value ? ta.value.trimEnd() + ' ' : '') + text;
-    } catch (e) { toast(micErrorKey(e) || e.message); }
+    } catch (e) { toast(e.code === 'cancelled' ? 'errors.cancelled' : micErrorKey(e) || e.message); }
     finally { dictating = false; b.classList.remove('on'); }
   };
 });

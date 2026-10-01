@@ -74,12 +74,12 @@ rest: the title, the last user prompt and the last assistant message.
    session ID the previous one ended in, so it would also work if Claude Code ever returned a new one. Jobs without a
    conversation never wait.
 5. **Poll.** The browser polls `GET /api/ask/<id>` about every 1.2 seconds until the status is `done` or `error`.
+   Network errors while polling are retried until the 5-minute limit, but `unknown_job` (the agent restarted and
+   forgot the job) ends the wait at once: the app says so and asks the user to ask again.
    The response includes the reply and the `conversationId` (the Claude session ID), which the browser keeps for
    follow-ups. When Claude Code fails with a known usage-limit, login or overload message, `error` is a short
    sentence in the job's language, for example `[[Claude|klod]] kullanım limitine ulaşıldı, 14:00’te sıfırlanıyor.`,
-   and Claude's original text is in `detail`. Network errors while polling are retried until the 5-minute limit, but
-   `unknown_job` (the agent restarted and forgot the job) ends the wait at once: the app says so and asks the user to
-   ask again.
+   and Claude's original text is in `detail`.
 6. **Notify.** Every finished job is also saved as a notification. If the page was closed, the answer is waiting in
    the **Notifications** view.
 7. **Speak.** `POST /api/speak {text, voice, lang}`. `tts/speak.py` returns MP3 audio and word boundaries. The app
