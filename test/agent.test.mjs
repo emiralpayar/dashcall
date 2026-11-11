@@ -287,3 +287,7 @@ test('a malformed request line does not crash the agent', async () => {
   });
   assert.deepEqual(await (await call('/api/health')).json(), { ok: true });
 });
+
+test('a remote session that cannot start reports the error', async () => {
+  await assertError(await post('/api/sessions/remote', {}), 500, 'internal'); // herdr is missing
+});

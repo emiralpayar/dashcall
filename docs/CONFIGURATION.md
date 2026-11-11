@@ -67,6 +67,8 @@ You don't set these. The agent passes them to each dispatcher run, and the `dash
 | `DASHCALL_SESSION_DAYS` | `30` | no | How many days a login lasts after the device last used the app. Any number above 0 and up to 400 (browsers don't keep cookies longer). Lowering it also shortens existing logins. See [Staying logged in](#staying-logged-in-and-signing-out-everywhere). |
 | `DASHCALL_SESSION_EPOCH` | `0` | no | Part of every session cookie's signature. Change it, for example from `0` to `1`, and restart to **sign out every device**. |
 | `DASHCALL_TOTP_SECRET` | none | no | Turns on [two-factor login](#two-factor-login): the base32 secret your authenticator app uses (at least 16 characters; spaces and case don't matter). Make one with `node scripts/totp-secret.mjs`. Setting, changing or removing it signs out every device. The web app refuses to start if the value isn't valid base32. |
+| `DASHCALL_SHORTCUT_TOKEN` | none | no | Turns on `POST /shortcut/remote` for a [home-screen shortcut](#home-screen-shortcut-for-a-remote-session). At least 32 characters (`openssl rand -hex 32`). It can only start a new remote session; it is not a login. |
+| `DASHCALL_REMOTE_AGENTS` | none | no | Other machines that run a Dashcall agent, for `POST /shortcut/remote/<name>`: JSON such as `{"work":{"url":"http://100.x.y.z:7420","token":"<that agent's DASHCALL_TOKEN>"}}`. Names use `a-z`, `0-9` and `-`. Only the shortcut uses them; the app itself still talks to `DASHCALL_AGENT_URL`. |
 
 The web app exits at startup and lists the missing variables if any required one is unset. It also exits if
 `DASHCALL_SESSION_DAYS` or `DASHCALL_TOTP_SECRET` has an invalid value.
@@ -87,6 +89,28 @@ nobody can log in for a while, but devices that are already logged in keep worki
 addresses from the web app's `login failed` log lines at your reverse proxy or firewall; restarting the web app clears
 the counters. Don't sign out everywhere (or change the password) while the limit is being hit: no device could log
 back in until the attack stops.
+
+### Home-screen shortcut for a remote session
+
+The **Remote session** button on the Sessions tab starts a new Claude Code session in your home folder (the
+workspace root) with `/remote-control` already on, and gives you its link. To do the same with one tap from an
+iPhone home screen, without opening Dashcall:
+
+1. Put `DASHCALL_SHORTCUT_TOKEN=<openssl rand -hex 32>` in `web/.env` and restart the web app.
+2. In the **Shortcuts** app, make a new shortcut with three actions:
+   - **Get Contents of URL**: `https://dashcall.example.com/shortcut/remote`, Method `POST`, Header
+     `Authorization` = `Bearer <the token>`.
+   - **Get Dictionary Value**: the value for key `url`.
+   - **Open URLs**.
+3. **Add to Home Screen** (or add a Shortcuts widget).
+
+A tap takes about 15 seconds: the session starts on the Mac, then the Claude app opens on it. The token can do
+nothing else: it can't read sessions or send prompts. Wrong tokens count against the same limits as failed logins.
+To revoke it, change or remove the variable and restart.
+
+**A button per machine.** Run a Dashcall agent on the second machine too, list it in `DASHCALL_REMOTE_AGENTS`, and
+make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The token
+is the same.
 
 ### Two-factor login
 

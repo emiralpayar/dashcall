@@ -44,6 +44,7 @@ translated message for known codes (`errors.<code>` in `web/public/i18n.js`) and
 | `folder_not_found` | 400 | `cwd` is missing or not a directory |
 | `folder_outside_root` | 400 | `cwd` is outside `DASHCALL_WORKSPACE_ROOT` |
 | `session_start_failed` | 500 | herdr couldn't create the pane, or Claude Code didn't become ready within 60 s |
+| `remote_control_failed` | 500 | The session started, but `/remote-control` didn't show its link within 30 s |
 | `internal` | 500 | Anything else, for example a herdr, ffmpeg or whisper failure. `error` carries a short reason. |
 
 ### Web error codes
@@ -54,7 +55,9 @@ translated message for known codes (`errors.<code>` in `web/public/i18n.js`) and
 | `bad_password` | 401 | Wrong password at `/login` |
 | `bad_login` | 401 | Two-factor login is on and the password or the one-time code is wrong (deliberately the same answer for both) |
 | `code_used` | 401 | Two-factor login is on and the one-time code (or an older one) was already used; wait for the next code |
-| `rate_limited` | 429 | 10 failed logins from one IP, or 30 from all IPs together, in the last 15 minutes |
+| `rate_limited` | 429 | 10 failed logins (or wrong shortcut tokens) from one IP, or 30 from all IPs together, in the last 15 minutes |
+| `bad_token` | 401 | Missing or wrong bearer token at `/shortcut/remote` |
+| `unknown_device` | 404 | `/shortcut/remote/<name>` names a machine that is not in `DASHCALL_REMOTE_AGENTS` |
 | `cross_origin` | 403 | A login or non-GET API call that isn't same-origin |
 | `too_large` | 413 | The body is over 25 MB |
 | `agent_unreachable` | 502 | The agent didn't answer: it's down or unreachable, or the 120 s timeout passed |
@@ -123,6 +126,14 @@ expanded.
 Starts a new herdr workspace in `cwd`, runs `DASHCALL_SESSION_COMMAND`, accepts the "trust this folder" prompt if it
 appears, waits until Claude Code is ready (up to 60 s), then sends `prompt`. Returns `{"pane": "…", "cwd": "…"}`.
 Errors: `folder_not_found`, `folder_outside_root`, `session_start_failed`.
+
+#### `POST /api/sessions/remote`
+
+No body. Starts a new session in `DASHCALL_WORKSPACE_ROOT` (your home folder by default) exactly like
+`/api/sessions/new`, then types `/remote-control`, confirms what Claude Code asks, and reads the session's claude.ai
+link from the screen. Returns `{"pane": "…", "cwd": "…", "url": "https://claude.ai/code/session_…"}`. A call that
+arrives while another one is still starting gets that one's answer instead of opening a second session. Takes about
+15 s. Errors: `session_start_failed`, `remote_control_failed`.
 
 #### `GET /api/dirs`
 
@@ -279,6 +290,7 @@ unmuted. Errors: `key_required`, `not_found`.
 | `POST /login` | same-origin | Body `{"password": "…", "code": "123456"}` (`code` only with two-factor login; anything but digits, such as spaces or dashes, is ignored). On success, sets the `dashcall` cookie (HttpOnly, `Secure` unless `DASHCALL_COOKIE_SECURE=0`, `SameSite=Lax`, valid for `DASHCALL_SESSION_DAYS` days) and returns `{"ok": true}`. Errors: `cross_origin`, `rate_limited`, `bad_password`, or with two-factor login `bad_login` and `code_used`. |
 | `GET /login/config` | none | `{"totp": true}` when two-factor login is on (`DASHCALL_TOTP_SECRET`), so the login page shows the code field. |
 | `POST /logout` | same-origin | Clears the session cookie (204). |
+| `POST /shortcut/remote` | `Authorization: Bearer <DASHCALL_SHORTCUT_TOKEN>` | Only when `DASHCALL_SHORTCUT_TOKEN` is set. Forwards to the agent's `POST /api/sessions/remote` and returns its answer (`{"url": …}`). `POST /shortcut/remote/<name>` does the same on another machine listed in `DASHCALL_REMOTE_AGENTS` (error: `unknown_device`). For a phone home-screen shortcut; see [CONFIGURATION.md](CONFIGURATION.md#home-screen-shortcut-for-a-remote-session). Errors: `bad_token`, `rate_limited`, `agent_unreachable`, `agent_auth`, plus the agent's own. |
 | `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent. Errors: `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |
 | `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`, plus the web app manifest and its icons (`/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`, `/apple-touch-icon.png`), which browsers fetch without cookies. |
 
