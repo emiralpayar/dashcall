@@ -24,6 +24,7 @@ textarea { resize: vertical; min-height: 120px; }
 .btn:active { transform: scale(.98); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .btn.big { width: 100%; font-size: 1.1em; min-height: 56px; }
+a.btn { display: flex; align-items: center; justify-content: center; text-decoration: none; box-sizing: border-box; }
 .btn.ghost { background: transparent; }
 .btn.danger { color: var(--bad); }
 .btn:disabled { opacity: .5; }

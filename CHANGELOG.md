@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Remote session** button on the Sessions tab: one tap starts a new Claude Code session in the home folder, turns
+  on `/remote-control` and shows the session's claude.ai link (`POST /api/sessions/remote`).
+- `POST /shortcut/remote` with its own token (`DASHCALL_SHORTCUT_TOKEN`), so an iPhone home-screen shortcut can do the
+  same without logging in. See "Home-screen shortcut for a remote session" in docs/CONFIGURATION.md.
+
 ### Fixed
 
 - The dispatcher could not start a session in any folder: `dashcall new ~/project …` was denied because the

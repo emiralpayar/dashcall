@@ -308,3 +308,26 @@ test('the login page has a hidden one-time-code field for two-factor login', asy
   const html = await (await fetch(base + '/')).text();
   assert.match(html, /<input id="code"[^>]*inputmode="numeric"[^>]*autocomplete="one-time-code"[^>]*hidden>/);
 });
+
+test('the shortcut endpoint needs its own token and can only start a remote session', async () => {
+  const SHORTCUT = 'k'.repeat(40);
+  const shortcut = (b, token, ip = '10.9.0.1') => fetch(b + '/shortcut/remote', { method: 'POST', headers: { 'x-forwarded-for': ip, ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+  // off by default: the request never reaches the agent
+  seen = [];
+  await shortcut(base, SHORTCUT);
+  assert.deepEqual(seen, []);
+  await withWeb({ DASHCALL_SHORTCUT_TOKEN: SHORTCUT }, async b => {
+    for (const bad of [null, 'wrong', TOKEN, PASSWORD]) await assertError(await shortcut(b, bad), 401, 'bad_token', String(bad));
+    assert.deepEqual(seen, []);
+    const r = await shortcut(b, SHORTCUT);
+    assert.equal(r.status, 200);
+    assert.deepEqual(seen, [{ url: '/api/sessions/remote', auth: `Bearer ${TOKEN}` }]);
+    // the token opens nothing else
+    await assertError(await fetch(b + '/api/health', { headers: { authorization: `Bearer ${SHORTCUT}` } }), 401, 'login_required');
+    // wrong tokens are rate limited like wrong passwords; the right one still works from another address
+    for (let i = 0; i < 10; i++) await shortcut(b, 'guess', '10.9.0.2');
+    await assertError(await shortcut(b, SHORTCUT, '10.9.0.2'), 429, 'rate_limited');
+    assert.equal((await shortcut(b, SHORTCUT, '10.9.0.3')).status, 200);
+  });
+  await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_SHORTCUT_TOKEN: 'short' })), /exited \(1\).*DASHCALL_SHORTCUT_TOKEN/s);
+});

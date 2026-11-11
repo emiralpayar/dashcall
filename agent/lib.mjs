@@ -237,6 +237,38 @@ export async function startSession(cwd, prompt, label) {
   return { pane, cwd };
 }
 
+// ---------- remote control ----------
+const REMOTE_URL = /https:\/\/claude\.ai\/code\/session_\w+/;
+// What the screen says after "/remote-control" was typed: { url } once the session is shared, 'enter' while its menu
+// (Disconnect / Show QR code / Continue) is open with Continue highlighted, otherwise 'wait'. Enter is never pressed
+// on any other highlighted choice: it could disconnect the session or decline a prompt.
+export function remoteControlState(screen) {
+  const s = String(screen);
+  const url = /\/remote-control is active/.test(s) && REMOTE_URL.exec(s);
+  if (url) return { url: url[0] };
+  return /^\s*❯\s*(\d+\.\s*)?Continue\b/m.test(s) ? 'enter' : 'wait';
+}
+
+// Types /remote-control into a ready session, confirms what it asks, and returns the claude.ai link of the session.
+export async function enableRemoteControl(pane, { poll = 1000, tries = 30 } = {}) {
+  await herdr(['pane', 'send-text', pane, '/remote-control']);
+  await sleep(poll / 2); // let the slash-command menu settle before submitting
+  await herdr(['pane', 'send-keys', pane, 'enter']);
+  for (let i = 0, confirmed = 0; i < tries; i++) {
+    await sleep(poll);
+    const st = remoteControlState(await herdr(['pane', 'read', pane, '--source', 'visible']).catch(() => ''));
+    if (st.url) return st.url;
+    if (st === 'enter' && confirmed < 3) { confirmed++; await herdr(['pane', 'send-keys', pane, 'enter']); }
+  }
+  throw httpError(500, 'remote_control_failed', `the session started but /remote-control did not become active (pane ${pane})`);
+}
+
+// One step for the "remote session" button and the phone shortcut: a new session that is already shared.
+export async function startRemoteSession(cwd = WORKSPACE_ROOT) {
+  const s = await startSession(cwd, '');
+  return { ...s, url: await enableRemoteControl(s.pane) };
+}
+
 // Project folders under WORKSPACE_ROOT (the only place new sessions may start), newest first. A folder that holds
 // only folders (e.g. ~/development) is a container: its subfolders are listed too, as "development/agent-arena".
 export async function listDirs() {

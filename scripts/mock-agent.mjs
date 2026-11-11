@@ -262,6 +262,7 @@ const routes = [
     }
     return { ok: true };
   }],
+  ['POST', /^\/api\/sessions\/remote$/, () => ({ pane: 'w9:p1', cwd: HOME, url: 'https://claude.ai/code/session_demo' })],
   ['POST', /^\/api\/sessions\/new$/, (req, b) => {
     if (typeof b.cwd !== 'string' || !b.cwd) throw httpError(400, 'folder_not_found', 'cwd required');
     const cwd = b.cwd.replace(/^~(?=$|\/)/, HOME).replace(/\/+$/, '');

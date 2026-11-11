@@ -460,3 +460,20 @@ test('Replay speaks the last answer in the language it was given in, also after 
     assert.deepEqual(h.spokenLangs, ['tr-TR']);
   } finally { h.close(); }
 });
+
+test('the remote session button starts one session and offers its link', async () => {
+  const url = 'https://claude.ai/code/session_01AbC';
+  const h = boot({ routes: { 'POST /sessions/remote': () => new Promise(r => setTimeout(() => r({ pane: 'w9:p1', cwd: '/Users/you', url }), 15e3 / FAST)) } });
+  try {
+    h.$('remote').onclick();
+    h.$('remote').onclick(); // a second tap while it starts is ignored
+    assert.ok(h.$('remote').disabled);
+    assert.equal(h.$('remote').textContent, 'Starting…');
+    await h.until(() => !h.$('sheet').hidden, 'the sheet with the link');
+    assert.equal(h.calls('POST /sessions/remote').length, 1);
+    assert.equal(h.$('sheet-title').textContent, 'Remote session is ready');
+    assert.match(h.$('sheet-body').innerHTML, new RegExp(`<a [^>]*href="${url}"[^>]*>Open in Claude</a>`));
+    assert.ok(!h.$('remote').disabled);
+    assert.equal(h.$('remote').textContent, 'Remote session');
+  } finally { h.close(); }
+});

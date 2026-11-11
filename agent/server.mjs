@@ -207,6 +207,7 @@ function isAudio(b) {
 }
 
 // ---------- routes ----------
+let remoteStart = null;
 const routes = [
   ['GET', /^\/api\/health$/, async () => ({ ok: true })],
   ['GET', /^\/api\/sessions$/, async () => ({ sessions: (await L.listSessions()).filter(s => !L.isDispatcher(s)) })],
@@ -230,6 +231,8 @@ const routes = [
     if (typeof cwd !== 'string' || !cwd) throw httpError(400, 'folder_not_found', 'cwd required');
     return L.startSession(cwd, typeof prompt === 'string' ? prompt : '', typeof label === 'string' ? label : undefined);
   }],
+  // A double tap (or an impatient retry) joins the start that is already running instead of opening a second session.
+  ['POST', /^\/api\/sessions\/remote$/, async () => (remoteStart ??= L.startRemoteSession().finally(() => { remoteStart = null; }))],
   ['GET', /^\/api\/dirs$/, async () => ({ dirs: await L.listDirs() })],
   ['POST', /^\/api\/ask$/, async req => {
     const { text, conversationId, lang, requestId } = await json(req);

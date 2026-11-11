@@ -24,6 +24,9 @@ const SESSION_DAYS = Number(process.env.DASHCALL_SESSION_DAYS || 30);
 const SESSION_EPOCH = process.env.DASHCALL_SESSION_EPOCH || '0';
 // Optional second factor: the base32 secret of an authenticator app (RFC 6238). `node scripts/totp-secret.mjs` makes one.
 const TOTP_SECRET = process.env.DASHCALL_TOTP_SECRET;
+// Optional token for POST /shortcut/remote (a phone home-screen shortcut). It can do one thing only: start a new
+// session with remote control on. Unset = the endpoint does not exist.
+const SHORTCUT_TOKEN = process.env.DASHCALL_SHORTCUT_TOKEN;
 const missing = ['DASHCALL_PASSWORD', 'DASHCALL_SECRET', 'DASHCALL_AGENT_URL', 'DASHCALL_AGENT_TOKEN'].filter(k => !process.env[k]);
 if (missing.length) { console.error('missing env:', missing.join(', '), '(see web/.env.example)'); process.exit(1); }
 // Browsers cap cookie lifetimes at 400 days.
@@ -31,6 +34,7 @@ if (!(SESSION_DAYS > 0 && SESSION_DAYS <= 400)) { console.error('DASHCALL_SESSIO
 const TOTP_KEY = TOTP_SECRET ? base32Decode(TOTP_SECRET) : null;
 // Refuse to start rather than silently run without the second factor the owner asked for.
 if (TOTP_SECRET && !(TOTP_KEY?.length >= 10)) { console.error('DASHCALL_TOTP_SECRET must be a base32 secret of at least 16 characters (node scripts/totp-secret.mjs makes one)'); process.exit(1); }
+if (SHORTCUT_TOKEN && SHORTCUT_TOKEN.length < 32) { console.error('DASHCALL_SHORTCUT_TOKEN must be at least 32 characters (openssl rand -hex 32)'); process.exit(1); }
 if (PASSWORD.length < 12) console.warn('warning: DASHCALL_PASSWORD is short; anyone who guesses it can run commands on your Mac');
 if (SECRET.length < 32) console.warn('warning: DASHCALL_SECRET should be at least 32 random characters');
 
@@ -212,6 +216,16 @@ async function handle(req, res) {
   if (url.pathname === '/logout' && req.method === 'POST') {
     if (!sameOrigin(req)) return fail(res, 403, 'cross_origin', 'cross-origin request refused');
     res.writeHead(204, { 'set-cookie': sessionCookie('', 0) }); return res.end();
+  }
+
+  // The phone shortcut: no cookie, its own token, one fixed agent call. Wrong tokens count against the login limits.
+  if (url.pathname === '/shortcut/remote' && req.method === 'POST' && SHORTCUT_TOKEN) {
+    const release = countAttempt(ip);
+    if (!release) return fail(res, 429, 'rate_limited', 'too many attempts, try again in 15 minutes');
+    const given = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
+    if (!eq(sign('shortcut:' + given), sign('shortcut:' + SHORTCUT_TOKEN))) { log('shortcut: wrong token', ip); return fail(res, 401, 'bad_token', 'wrong shortcut token'); }
+    release();
+    return proxy(req, res, { pathname: '/api/sessions/remote', search: '' });
   }
 
   if (url.pathname.startsWith('/api/')) {

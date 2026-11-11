@@ -683,6 +683,20 @@ $('newform').onsubmit = async e => {
   $('n-go').disabled = false; $('n-go').textContent = t('new.start');
 };
 
+// ---------- remote session ----------
+// One tap: a new session in the home folder with /remote-control already on. The link opens from a tap of its own
+// (a sheet), because browsers block opening another app after a wait this long.
+$('remote').onclick = async () => {
+  if ($('remote').disabled) return;
+  $('remote').disabled = true; $('remote').dataset.i18n = 'remote.starting'; $('remote').textContent = t('remote.starting');
+  try {
+    const r = await api('/sessions/remote', { method: 'POST', timeout: 100000 });
+    openSheet('remote.ready', '', () => [t('remote.ready'), `<a class="btn primary big" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(t('remote.open'))}</a>`]);
+    loadSessions();
+  } catch (e) { toast(e.timedOut ? 'new.maybeStarting' : e.message, null, 8000); }
+  $('remote').disabled = false; $('remote').dataset.i18n = 'remote.start'; $('remote').textContent = t('remote.start');
+};
+
 // ---------- connection indicator ----------
 function setConn(ok) { $('conn').className = 'conn ' + (ok ? 'ok' : 'bad'); }
 async function ping() { try { const d = await api('/health'); if (d?.silent) silent = true; setConn(true); } catch { setConn(false); } }
