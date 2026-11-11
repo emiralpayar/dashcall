@@ -27,6 +27,20 @@ const TOTP_SECRET = process.env.DASHCALL_TOTP_SECRET;
 // Optional token for POST /shortcut/remote (a phone home-screen shortcut). It can do one thing only: start a new
 // session with remote control on. Unset = the endpoint does not exist.
 const SHORTCUT_TOKEN = process.env.DASHCALL_SHORTCUT_TOKEN;
+// Other machines that run a Dashcall agent, reachable as POST /shortcut/remote/<name> (one home-screen button per
+// machine). JSON: {"work": {"url": "http://100.x.y.z:7420", "token": "<that agent's DASHCALL_TOKEN>"}}.
+const REMOTE_AGENTS = parseRemoteAgents(process.env.DASHCALL_REMOTE_AGENTS);
+function parseRemoteAgents(raw) {
+  if (!raw) return {};
+  try {
+    const o = JSON.parse(raw);
+    for (const [name, a] of Object.entries(o)) {
+      if (!/^[a-z0-9-]{1,32}$/.test(name) || !/^https?:\/\//.test(a?.url) || typeof a.token !== 'string' || !a.token) throw new Error(name);
+      a.url = a.url.replace(/\/+$/, '');
+    }
+    return o;
+  } catch { console.error('DASHCALL_REMOTE_AGENTS must be JSON like {"work":{"url":"http://100.x.y.z:7420","token":"…"}} (names: a-z, 0-9, -)'); process.exit(1); }
+}
 const missing = ['DASHCALL_PASSWORD', 'DASHCALL_SECRET', 'DASHCALL_AGENT_URL', 'DASHCALL_AGENT_TOKEN'].filter(k => !process.env[k]);
 if (missing.length) { console.error('missing env:', missing.join(', '), '(see web/.env.example)'); process.exit(1); }
 // Browsers cap cookie lifetimes at 400 days.
@@ -132,7 +146,8 @@ async function readBody(req, limit) {
   return Buffer.concat(chunks);
 }
 
-async function proxy(req, res, url) {
+// agent: which machine's agent answers (the main one unless a shortcut names another).
+async function proxy(req, res, url, agent = { url: AGENT_URL, token: AGENT_TOKEN }) {
   const t0 = Date.now();
   const MAX = 25 * 1024 * 1024;
   if (Number(req.headers['content-length']) > MAX) return fail(res, 413, 'too_large', 'request body too large', { connection: 'close' });
@@ -144,9 +159,9 @@ async function proxy(req, res, url) {
     return fail(res, 413, 'too_large', 'request body too large');
   }
   try {
-    const r = await fetch(AGENT_URL + url.pathname + url.search, {
+    const r = await fetch(agent.url + url.pathname + url.search, {
       method: req.method, body,
-      headers: { authorization: `Bearer ${AGENT_TOKEN}`, 'content-type': req.headers['content-type'] || 'application/json' },
+      headers: { authorization: `Bearer ${agent.token}`, 'content-type': req.headers['content-type'] || 'application/json' },
       signal: AbortSignal.timeout(120000),
     });
     const buf = Buffer.from(await r.arrayBuffer());
@@ -219,13 +234,17 @@ async function handle(req, res) {
   }
 
   // The phone shortcut: no cookie, its own token, one fixed agent call. Wrong tokens count against the login limits.
-  if (url.pathname === '/shortcut/remote' && req.method === 'POST' && SHORTCUT_TOKEN) {
+  // /shortcut/remote starts the session on the main machine, /shortcut/remote/<name> on one of DASHCALL_REMOTE_AGENTS.
+  const shortcut = req.method === 'POST' && SHORTCUT_TOKEN && /^\/shortcut\/remote(?:\/([a-z0-9-]+))?$/.exec(url.pathname);
+  if (shortcut) {
     const release = countAttempt(ip);
     if (!release) return fail(res, 429, 'rate_limited', 'too many attempts, try again in 15 minutes');
     const given = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
     if (!eq(sign('shortcut:' + given), sign('shortcut:' + SHORTCUT_TOKEN))) { log('shortcut: wrong token', ip); return fail(res, 401, 'bad_token', 'wrong shortcut token'); }
     release();
-    return proxy(req, res, { pathname: '/api/sessions/remote', search: '' });
+    const agent = shortcut[1] ? REMOTE_AGENTS[shortcut[1]] : undefined;
+    if (shortcut[1] && !agent) return fail(res, 404, 'unknown_device', `no machine named ${shortcut[1]} in DASHCALL_REMOTE_AGENTS`);
+    return proxy(req, res, { pathname: '/api/sessions/remote', search: '' }, agent);
   }
 
   if (url.pathname.startsWith('/api/')) {

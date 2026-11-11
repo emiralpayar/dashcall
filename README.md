@@ -79,6 +79,10 @@ silent by default; run `DASHCALL_DEMO_SOUND=1 npm run demo` to hear answers in y
   Enter keys. A finished session opens read-only with its last prompt and reply.
 - **New job.** Pick a project folder, describe the task (by voice or text), and Dashcall starts a new Claude Code
   session for it.
+- **Remote session.** One tap starts a new Claude Code session in your home folder with `/remote-control` already on
+  and hands you its link, so you continue in the Claude app. With a token of its own it also works as an iPhone
+  home-screen shortcut, one button per machine
+  ([setup](docs/CONFIGURATION.md#home-screen-shortcut-for-a-remote-session)).
 - **Background tasks.** "Look into X and tell me when you're done." The dispatcher starts or watches a session and
   sends you a spoken summary when it finishes, gets stuck, or closes.
 - **Notifications.** Every answer and background result is kept, so nothing is lost if you closed the app while

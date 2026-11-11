@@ -70,6 +70,10 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
   son isteği ve son cevabıyla salt okunur açılır.
 - **Yeni iş.** Proje klasörünü seç, görevi sesle ya da yazarak anlat; Dashcall o iş için yeni bir Claude Code oturumu
   açar.
+- **Remote session.** Tek dokunuşla home klasöründe, `/remote-control` açık yeni bir Claude Code oturumu başlar ve
+  linki gelir; Claude uygulamasından devam edersin. Kendi token'ıyla iPhone ana ekranına kısayol olarak da konur,
+  her makine için ayrı bir buton olabilir
+  ([kurulum](docs/CONFIGURATION.md#home-screen-shortcut-for-a-remote-session)).
 - **Arka plan işleri.** "Şuna bak, bitince söyle." Dispatcher bir oturum başlatır ya da mevcut oturumu izler; iş
   bittiğinde, takıldığında ya da oturum kapandığında sana sesli bir özet gönderir.
 - **Bildirimler.** Her cevap ve arka plan sonucu saklanır; araba sürerken uygulamayı kapatsan da hiçbir şey kaybolmaz.

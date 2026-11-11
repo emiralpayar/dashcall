@@ -331,3 +331,25 @@ test('the shortcut endpoint needs its own token and can only start a remote sess
   });
   await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_SHORTCUT_TOKEN: 'short' })), /exited \(1\).*DASHCALL_SHORTCUT_TOKEN/s);
 });
+
+test('/shortcut/remote/<name> starts the session on another machine from DASHCALL_REMOTE_AGENTS', async () => {
+  const SHORTCUT = 'k'.repeat(40), got = [];
+  const work = http.createServer((req, res) => { got.push({ url: req.url, auth: req.headers.authorization }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"url":"https://claude.ai/code/session_work"}'); });
+  await new Promise(r => work.listen(0, '127.0.0.1', r));
+  const agents = JSON.stringify({ work: { url: `http://127.0.0.1:${work.address().port}/`, token: 'work-token' } });
+  try {
+    await withWeb({ DASHCALL_SHORTCUT_TOKEN: SHORTCUT, DASHCALL_REMOTE_AGENTS: agents }, async b => {
+      const call = (p, token = SHORTCUT) => fetch(b + p, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+      seen = [];
+      assert.deepEqual(await (await call('/shortcut/remote/work')).json(), { url: 'https://claude.ai/code/session_work' });
+      assert.deepEqual(got, [{ url: '/api/sessions/remote', auth: 'Bearer work-token' }]);
+      assert.deepEqual(seen, [], 'the main machine is not involved');
+      await assertError(await call('/shortcut/remote/nope'), 404, 'unknown_device');
+      await assertError(await call('/shortcut/remote/work', 'wrong'), 401, 'bad_token');
+      assert.equal((await call('/shortcut/remote')).status, 200);
+      assert.equal(seen.length, 1, 'no name = the main machine');
+    });
+  } finally { work.close(); }
+  for (const bad of ['not json', '{"Work PC":{"url":"http://x","token":"t"}}', '{"work":{"url":"x","token":"t"}}', '{"work":{"url":"http://x"}}'])
+    await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_REMOTE_AGENTS: bad })), /exited \(1\).*DASHCALL_REMOTE_AGENTS/s, bad);
+});

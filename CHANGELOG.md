@@ -12,7 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Remote session** button on the Sessions tab: one tap starts a new Claude Code session in the home folder, turns
   on `/remote-control` and shows the session's claude.ai link (`POST /api/sessions/remote`).
 - `POST /shortcut/remote` with its own token (`DASHCALL_SHORTCUT_TOKEN`), so an iPhone home-screen shortcut can do the
-  same without logging in. See "Home-screen shortcut for a remote session" in docs/CONFIGURATION.md.
+  same without logging in. `POST /shortcut/remote/<name>` starts the session on another machine listed in
+  `DASHCALL_REMOTE_AGENTS`, for one button per machine. See "Home-screen shortcut for a remote session" in docs/CONFIGURATION.md.
 
 ### Fixed
 
