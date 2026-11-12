@@ -24,6 +24,13 @@ export const config = {
   defaultLanguage: LANGUAGES.includes(env('DASHCALL_DEFAULT_LANGUAGE')) ? env('DASHCALL_DEFAULT_LANGUAGE') : 'en',
   // Typed into a new herdr pane to start a Claude Code session.
   sessionCommand: env('DASHCALL_SESSION_COMMAND') || 'claude',
+  // Pull mode (agent/pull.mjs): this machine connects out to the web app and starts remote sessions on demand,
+  // instead of listening for the web app to reach it. Used for a work PC that can't be reached from the server.
+  pull: {
+    url: (env('DASHCALL_PULL_URL') || '').replace(/\/+$/, ''),
+    token: env('DASHCALL_PULL_TOKEN'),
+    name: env('DASHCALL_PULL_NAME'),
+  },
   // New sessions may only be started in folders under this directory.
   workspaceRoot: path.resolve(env('DASHCALL_WORKSPACE_ROOT') || HOME),
   // Log transcripts and questions (off by default: they are private).

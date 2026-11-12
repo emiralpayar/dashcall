@@ -70,6 +70,7 @@ You don't set these. The agent passes them to each dispatcher run, and the `dash
 | `DASHCALL_SHORTCUT_TOKEN` | none | no | Turns on `POST /shortcut/remote` for a [home-screen shortcut](#home-screen-shortcut-for-a-remote-session). At least 32 characters (`openssl rand -hex 32`). It can only start a new remote session; it is not a login. |
 | `DASHCALL_REMOTE_AGENTS` | none | no | [Other machines](#more-than-one-machine) that run a Dashcall agent: JSON such as `{"work":{"url":"http://100.x.y.z:7420","token":"<that agent's DASHCALL_TOKEN>","name":"Work PC"}}`. Ids use `a-z`, `0-9` and `-`; `name` is optional (shown in the app, default: the id). |
 | `DASHCALL_AGENT_NAME` | `Main` | no | What the machine picker calls the main machine (`DASHCALL_AGENT_URL`). |
+| `DASHCALL_PULL_DEVICES` | none | no | [Machines that connect out to the web app](#a-machine-that-cant-be-reached-pull-mode) instead of being reached at a URL, for the remote-session button only. JSON such as `{"work":{"token":"<32+ chars>","name":"Work PC"}}`. Needs `DASHCALL_SHORTCUT_TOKEN`. |
 
 The web app exits at startup and lists the missing variables if any required one is unset. It also exits if
 `DASHCALL_SESSION_DAYS` or `DASHCALL_TOTP_SECRET` has an invalid value.
@@ -102,6 +103,39 @@ session button, the dispatcher (Drive), brain and notifications; each machine ke
 (speech-to-text and the voices) always runs on the main machine, so the other machines need no whisper, ffmpeg or
 TTS setup. Notifications are fetched from the machine that is selected.
 
+### A machine that can't be reached (pull mode)
+
+[More than one machine](#more-than-one-machine) assumes the web server can open a connection to each agent (over
+Tailscale). When a machine can reach the web app but **cannot be reached from it** — an office network that blocks
+incoming connections, or one where you can't install Tailscale — turn it around: the machine connects out to the web
+app and waits for work. This serves the **remote-session button only** (not sessions, prompts or the machine picker).
+
+On the web app, list the machine in `DASHCALL_PULL_DEVICES` (it needs `DASHCALL_SHORTCUT_TOKEN` too) and restart:
+
+```sh
+DASHCALL_PULL_DEVICES={"work":{"token":"<openssl rand -hex 32>","name":"Work PC"}}
+```
+
+On the machine, install the agent's prerequisites only — Node 22+, Claude Code and herdr (the Mac steps in
+[INSTALL.md](INSTALL.md), **without** the speech tools, the open port or Tailscale) — then run the pull agent instead
+of the listening agent. In its `.env`:
+
+```sh
+DASHCALL_PULL_URL=https://dashcall.example.com
+DASHCALL_PULL_TOKEN=<the token you put in DASHCALL_PULL_DEVICES for this machine>
+DASHCALL_PULL_NAME=work
+DASHCALL_SESSION_COMMAND=claude        # or claude --dangerously-skip-permissions
+```
+
+```sh
+npm run pull        # logs: dashcall pull agent: work → https://dashcall.example.com
+```
+
+It makes only outbound HTTPS to `DASHCALL_PULL_URL`; nothing connects in. Keep it running the same way as the main
+agent (a LaunchAgent or systemd service pointing at `agent/pull.mjs`). Then make a shortcut whose URL ends in
+`/shortcut/remote/work`, exactly as below. A tap starts a herdr session with remote control on, just like the main
+machine. If the machine is asleep or the pull agent isn't running, the shortcut answers `device_offline` quickly.
+
 ### Home-screen shortcut for a remote session
 
 The **Remote session** button on the Sessions tab starts a new Claude Code session in your home folder (the
@@ -120,8 +154,7 @@ A tap takes about 15 seconds: the session starts on the Mac, then the Claude app
 nothing else: it can't read sessions or send prompts. Wrong tokens count against the same limits as failed logins.
 To revoke it, change or remove the variable and restart.
 
-**A button per machine.** With [more than one machine](#more-than-one-machine), make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The token
-is the same.
+**A button per machine.** With [more than one machine](#more-than-one-machine) or a [pull device](#a-machine-that-cant-be-reached-pull-mode), make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The shortcut token is the same.
 
 ### Two-factor login
 

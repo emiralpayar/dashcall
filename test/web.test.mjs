@@ -380,3 +380,40 @@ test('the app lists the machines and its API calls go to the chosen one; speech 
   } finally { work.close(); }
   await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_REMOTE_AGENTS: '{"work":{"url":"http://x","token":"t","name":""}}' })), /exited \(1\).*DASHCALL_REMOTE_AGENTS/s);
 });
+
+test('a pull device gets a job over its held-open poll and the shortcut returns the posted link', async () => {
+  const DEV = 'd'.repeat(40), SHORTCUT = 'k'.repeat(40), LINK = 'https://claude.ai/code/session_01Work';
+  await withWeb({ DASHCALL_SHORTCUT_TOKEN: SHORTCUT, DASHCALL_PULL_DEVICES: JSON.stringify({ work: { token: DEV, name: 'Work PC' } }) }, async b => {
+    const dh = { authorization: `Bearer ${DEV}`, 'x-dashcall-device': 'work' };
+    const tap = () => fetch(b + '/shortcut/remote/work', { method: 'POST', headers: { authorization: `Bearer ${SHORTCUT}` } });
+    // offline until the device has ever polled
+    await assertError(await tap(), 503, 'device_offline');
+    // the device holds a poll open, the tap arrives and is handed a job, the device answers with the link
+    const poll = fetch(b + '/device/poll', { headers: dh });
+    await new Promise(r => setTimeout(r, 50));
+    const shot = tap();
+    const { job } = await (await poll).json();
+    assert.equal(job.type, 'remote');
+    const rr = await fetch(b + '/device/result', { method: 'POST', headers: dh, body: JSON.stringify({ id: job.id, url: LINK }) });
+    assert.equal(rr.status, 204);
+    assert.deepEqual(await (await shot).json(), { url: LINK });
+    // a job that arrives between polls waits in the queue for the next poll
+    const shot2 = tap();
+    await new Promise(r => setTimeout(r, 30));
+    const job2 = (await (await fetch(b + '/device/poll', { headers: dh })).json()).job;
+    await fetch(b + '/device/result', { method: 'POST', headers: dh, body: JSON.stringify({ id: job2.id, error: 'herdr is down', code: 'session_start_failed' }) });
+    await assertError(await shot2, 502, 'session_start_failed');
+    // auth and validation
+    await assertError(await fetch(b + '/device/poll', { headers: { ...dh, authorization: 'Bearer nope' } }), 401, 'bad_token');
+    await assertError(await fetch(b + '/device/poll', { headers: { authorization: `Bearer ${DEV}`, 'x-dashcall-device': 'ghost' } }), 401, 'bad_token');
+    await assertError(await fetch(b + '/device/result', { method: 'POST', headers: dh, body: JSON.stringify({ id: 'gone', url: LINK }) }), 404, 'unknown_job');
+    await assertError(await fetch(b + '/device/result', { method: 'POST', headers: dh, body: '{' }), 400, 'invalid_json');
+    // a pull device is not in the app's machine picker, and /api/* cannot be aimed at it
+    const cookie = cookieOf(await postLogin(b, { password: PASSWORD }, '10.7.0.1'));
+    assert.deepEqual(await (await fetch(b + '/api/devices', { headers: { cookie } })).json(), { devices: [{ id: '', name: 'Main' }] });
+    await assertError(await fetch(b + '/api/sessions', { headers: { cookie, 'x-dashcall-device': 'work' } }), 404, 'unknown_device');
+  });
+  // a device without a reachable session (no poll) fails fast as offline, and a short token / missing shortcut token stop the app
+  await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_PULL_DEVICES: '{"work":{"token":"short"}}', DASHCALL_SHORTCUT_TOKEN: 'k'.repeat(40) })), /exited \(1\).*DASHCALL_PULL_DEVICES/s);
+  await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_PULL_DEVICES: JSON.stringify({ work: { token: 'd'.repeat(40) } }) })), /exited \(1\).*DASHCALL_SHORTCUT_TOKEN/s);
+});
