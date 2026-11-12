@@ -20,6 +20,8 @@ agent/                 Mac-side HTTP API (Node, no deps)
   dispatch.mjs         dispatcher command line, per-conversation queue, friendly limit/login errors
   config.mjs           ALL agent settings (DASHCALL_* env vars), read once at import
   lib.mjs              herdr control, transcript reading, starting sessions
+  pull.mjs             pull agent: connects OUT to the web app and starts remote sessions on demand (a machine behind an
+                       inbound-blocking network); no port, reuses startRemoteSession
   brain.mjs            memory / notes / mutes (dispatcher/brain/brain.json)
   store.mjs            notifications + watches (state/*.json)
   jsonfile.mjs         locked, atomic JSON state files (never overwrites an unreadable one)
@@ -52,7 +54,7 @@ docs/                  user documentation, example configs
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs every test (188) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
+| `npm test` | Runs every test (190) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
 | `node --test test/web.test.mjs` | Runs a single test file. |
 | `npm run check` | Syntax-checks every JavaScript file (`node --check`), including `agent/bin/dashcall`. |
 | `npm run demo` | Web app + mock agent at <http://localhost:8080>, password `demo`. Silent: subtitles only, no audio. Use it for all UI work. |

@@ -22,6 +22,7 @@
   },
   "scripts": {
     "agent": "node --env-file=.env agent/server.mjs",
+    "pull": "node --env-file=.env agent/pull.mjs",
     "web": "node --env-file=web/.env web/server.mjs",
     "demo": "node scripts/demo.mjs",
     "check": "node scripts/check.mjs",

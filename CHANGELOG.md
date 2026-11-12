@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   same without logging in. `POST /shortcut/remote/<name>` starts the session on another machine listed in
   `DASHCALL_REMOTE_AGENTS`, for one button per machine. See "Home-screen shortcut for a remote session" in docs/CONFIGURATION.md.
 
+- **Pull devices** (`DASHCALL_PULL_DEVICES` on the web app, `agent/pull.mjs` + `npm run pull` on the machine): a
+  computer that can reach the web app but can't be reached from it (an inbound-blocking network, no Tailscale)
+  connects out and serves the remote-session button over a held-open poll. The phone shortcut reaches it as
+  `/shortcut/remote/<id>` like any other machine. See "A machine that can't be reached (pull mode)" in docs/CONFIGURATION.md.
 - **More than one machine.** List other machines that run a Dashcall agent in `DASHCALL_REMOTE_AGENTS` and the app
   shows a machine picker; sessions, new jobs, Drive, brain and notifications follow the choice. Speech stays on the
   main machine. See "More than one machine" in docs/CONFIGURATION.md.

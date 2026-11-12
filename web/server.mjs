@@ -1,6 +1,6 @@
 // Dashcall web: password login + static SPA + authenticated proxy to the agent on the Mac (e.g. over Tailscale).
 import http from 'node:http';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +45,77 @@ function parseRemoteAgents(raw) {
     return agents;
   } catch { console.error('DASHCALL_REMOTE_AGENTS must be JSON like {"work":{"url":"http://100.x.y.z:7420","token":"…"}} (ids: a-z, 0-9, -; optional "name")'); process.exit(1); }
 }
+
+// Machines that connect OUT to this web app instead of being reached at a URL, for a computer that can open an
+// HTTPS connection to this server but cannot be reached from it (an inbound-blocking network, or one where the
+// private network between the two can't be used). Such a machine runs the pull agent (agent/pull.mjs): it holds open
+// GET /device/poll and answers POST /device/result, both with its own token. The phone shortcut
+// POST /shortcut/remote/<id> hands it a job over that held-open poll and waits for the link. These machines serve
+// only the remote-session button, not the app's machine picker. JSON: {"work":{"token":"<32+ chars>","name":"Work PC"}}.
+const PULL_DEVICES = parsePullDevices(process.env.DASHCALL_PULL_DEVICES);
+function parsePullDevices(raw) {
+  const d = Object.create(null);
+  if (!raw) return d;
+  try {
+    for (const [id, a] of Object.entries(JSON.parse(raw))) {
+      if (!/^[a-z0-9-]{1,32}$/.test(id) || typeof a?.token !== 'string' || a.token.length < 32) throw new Error(id);
+      if (a.name != null && (typeof a.name !== 'string' || !a.name || a.name.length > 40)) throw new Error(id);
+      d[id] = { token: a.token, name: a.name || id };
+    }
+    return d;
+  } catch { console.error('DASHCALL_PULL_DEVICES must be JSON like {"work":{"token":"<32+ chars>","name":"Work PC"}} (ids: a-z, 0-9, -)'); process.exit(1); }
+}
+
+// Per pull device: a held-open poll waiting to carry a job, a queue for jobs that arrived between polls, and the
+// jobs themselves (a job resolves when the device posts its result or the wait times out). All in memory: a restart
+// drops pending jobs, which only means an in-flight tap has to be repeated.
+const POLL_HOLD_MS = 25000;   // how long GET /device/poll is held open before a 204 and a re-poll
+const PULL_WAIT_MS = 55000;   // how long the shortcut waits for the link (under the phone's own ~60 s request timeout)
+const PULL_OFFLINE_MS = 45000; // no poll within this long = the machine is treated as offline, so the shortcut fails fast
+const pullDev = new Map();
+const jobId = () => randomBytes(9).toString('base64url');
+function pullState(id) {
+  let s = pullDev.get(id);
+  if (!s) pullDev.set(id, s = { queue: [], poller: null, seen: 0, jobs: new Map() });
+  return s;
+}
+function pullPoll(res, id) {
+  const s = pullState(id); s.seen = Date.now();
+  let done = false, timer; // deliver identifies this poll as the current holder; clearTimeout(undefined) is a no-op
+  const deliver = job => { if (done) return; done = true; clearTimeout(timer); if (s.poller === deliver) s.poller = null;
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ job: { id: job, type: 'remote' } })); };
+  const queued = s.queue.shift();
+  if (queued) return deliver(queued);
+  timer = setTimeout(() => { if (done) return; done = true; if (s.poller === deliver) s.poller = null; res.writeHead(204); res.end(); }, POLL_HOLD_MS);
+  s.poller = deliver; // one poll at a time; a reconnect replaces the previous holder
+  res.on('close', () => { if (done) return; done = true; clearTimeout(timer); if (s.poller === deliver) s.poller = null; });
+}
+function pullEnqueue(res, id) {
+  const s = pullState(id);
+  if (!s.poller && Date.now() - s.seen > PULL_OFFLINE_MS) return fail(res, 503, 'device_offline', 'the machine is not connected');
+  const job = { id: jobId() };
+  const timer = setTimeout(() => job.settle({ timeout: true }), PULL_WAIT_MS);
+  job.settle = r => { if (!s.jobs.has(job.id)) return; s.jobs.delete(job.id); clearTimeout(timer);
+    if (r.timeout) return fail(res, 504, 'device_timeout', 'the machine did not answer in time');
+    if (r.error) { res.writeHead(r.status || 500, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify({ error: r.error, code: r.code || 'internal' })); }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ url: r.url })); };
+  s.jobs.set(job.id, job);
+  if (s.poller) { const p = s.poller; s.poller = null; p(job.id); } else s.queue.push(job.id);
+}
+function pullResult(res, id, body) {
+  const job = pullDev.get(id)?.jobs?.get(body?.id);
+  if (!job) return fail(res, 404, 'unknown_job', 'unknown or expired job');
+  if (typeof body.url === 'string' && /^https:\/\/claude\.ai\/code\/session_\w+$/.test(body.url)) job.settle({ url: body.url });
+  else job.settle({ error: body.error || 'the machine reported no session link', code: body.code || 'session_start_failed', status: 502 });
+  res.writeHead(204); res.end();
+}
+function deviceAuth(req) {
+  const id = String(req.headers['x-dashcall-device'] || '');
+  const dev = PULL_DEVICES[id];
+  if (!dev) return null;
+  const given = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
+  return eq(sign('pull:' + given), sign('pull:' + dev.token)) ? id : null;
+}
 const missing = ['DASHCALL_PASSWORD', 'DASHCALL_SECRET', 'DASHCALL_AGENT_URL', 'DASHCALL_AGENT_TOKEN'].filter(k => !process.env[k]);
 if (missing.length) { console.error('missing env:', missing.join(', '), '(see web/.env.example)'); process.exit(1); }
 // Browsers cap cookie lifetimes at 400 days.
@@ -53,6 +124,7 @@ const TOTP_KEY = TOTP_SECRET ? base32Decode(TOTP_SECRET) : null;
 // Refuse to start rather than silently run without the second factor the owner asked for.
 if (TOTP_SECRET && !(TOTP_KEY?.length >= 10)) { console.error('DASHCALL_TOTP_SECRET must be a base32 secret of at least 16 characters (node scripts/totp-secret.mjs makes one)'); process.exit(1); }
 if (SHORTCUT_TOKEN && SHORTCUT_TOKEN.length < 32) { console.error('DASHCALL_SHORTCUT_TOKEN must be at least 32 characters (openssl rand -hex 32)'); process.exit(1); }
+if (Object.keys(PULL_DEVICES).length && !SHORTCUT_TOKEN) { console.error('DASHCALL_PULL_DEVICES needs DASHCALL_SHORTCUT_TOKEN (the shortcut that reaches them)'); process.exit(1); }
 if (PASSWORD.length < 12) console.warn('warning: DASHCALL_PASSWORD is short; anyone who guesses it can run commands on your Mac');
 if (SECRET.length < 32) console.warn('warning: DASHCALL_SECRET should be at least 32 random characters');
 
@@ -246,9 +318,23 @@ async function handle(req, res) {
     const given = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
     if (!eq(sign('shortcut:' + given), sign('shortcut:' + SHORTCUT_TOKEN))) { log('shortcut: wrong token', ip); return fail(res, 401, 'bad_token', 'wrong shortcut token'); }
     release();
-    const agent = shortcut[1] ? REMOTE_AGENTS[shortcut[1]] : undefined;
-    if (shortcut[1] && !agent) return fail(res, 404, 'unknown_device', `no machine named ${shortcut[1]} in DASHCALL_REMOTE_AGENTS`);
+    const name = shortcut[1];
+    if (name && PULL_DEVICES[name]) return pullEnqueue(res, name); // a machine that connects out to us
+    const agent = name ? REMOTE_AGENTS[name] : undefined;
+    if (name && !agent) return fail(res, 404, 'unknown_device', `no machine named ${name} in DASHCALL_REMOTE_AGENTS`);
     return proxy(req, res, { pathname: '/api/sessions/remote', search: '' }, agent);
+  }
+
+  // A pull device's own connection: it authenticates with its device token, holds a poll open for the next job, and
+  // posts each job's result back. Wrong tokens count against the same guessing limits as logins.
+  if ((url.pathname === '/device/poll' || url.pathname === '/device/result') && PULL_DEVICES && Object.keys(PULL_DEVICES).length) {
+    const did = deviceAuth(req);
+    if (!did) { countAttempt(ip); log('device: wrong token', ip); return fail(res, 401, 'bad_token', 'wrong device token'); }
+    if (url.pathname === '/device/poll' && req.method === 'GET') return pullPoll(res, did);
+    if (url.pathname === '/device/result' && req.method === 'POST') {
+      let body; try { body = JSON.parse(await readBody(req, 10000)); } catch { return fail(res, 400, 'invalid_json', 'invalid request'); }
+      return pullResult(res, did, body);
+    }
   }
 
   if (url.pathname.startsWith('/api/')) {
