@@ -37,7 +37,8 @@ web/                   login + static SPA + /api proxy (Node, no deps, Docker)
                        apple-touch-icon.png)
 tts/speak.py           edge-tts wrapper (MP3 + word timings)
 scripts/               demo.mjs, mock-agent.mjs, check.mjs, download-model.sh (whisper + VAD models),
-                       totp-secret.mjs (secret for two-factor login)
+                       totp-secret.mjs (secret for two-factor login), remote-agent.mjs (standalone one-file agent
+                       for a second machine: only the remote-session endpoint, no herdr; reads its own env vars)
 test/                  node:test suites (no herdr, Claude or network needed), helpers.mjs
   agent, web, cli      the real servers and CLI against fake claude/herdr/ffmpeg/whisper binaries or a stub agent
   app, speak, subtitles
@@ -52,7 +53,7 @@ docs/                  user documentation, example configs
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs every test (186) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
+| `npm test` | Runs every test (190) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
 | `node --test test/web.test.mjs` | Runs a single test file. |
 | `npm run check` | Syntax-checks every JavaScript file (`node --check`), including `agent/bin/dashcall`. |
 | `npm run demo` | Web app + mock agent at <http://localhost:8080>, password `demo`. Silent: subtitles only, no audio. Use it for all UI work. |

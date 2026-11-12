@@ -108,9 +108,20 @@ A tap takes about 15 seconds: the session starts on the Mac, then the Claude app
 nothing else: it can't read sessions or send prompts. Wrong tokens count against the same limits as failed logins.
 To revoke it, change or remove the variable and restart.
 
-**A button per machine.** Run a Dashcall agent on the second machine too, list it in `DASHCALL_REMOTE_AGENTS`, and
-make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The token
-is the same.
+**A button per machine.** A second machine doesn't need the full agent (herdr, speech, the dispatcher). It only
+needs Node 22+, Claude Code and one file, `scripts/remote-agent.mjs`, which also runs on Windows:
+
+```sh
+DASHCALL_TOKEN=<openssl rand -hex 32> DASHCALL_BIND=<this machine's Tailscale IP> \
+DASHCALL_REMOTE_DIR=~/remote-sessions node scripts/remote-agent.mjs
+```
+
+`DASHCALL_REMOTE_DIR` must exist and must not be your home folder; run `claude` in it once and accept the trust
+prompt. Every tap starts `claude remote-control` in a new subfolder of it (Claude Code serves a folder only once and
+would otherwise reattach to the previous session). `DASHCALL_REMOTE_PERMISSION_MODE` sets the sessions' permission
+mode; the other settings are listed at the top of the file. Then list the machine in `DASHCALL_REMOTE_AGENTS` on the
+web app with that token, and make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example
+`/shortcut/remote/work`). The shortcut token is the same.
 
 ### Two-factor login
 
