@@ -353,3 +353,30 @@ test('/shortcut/remote/<name> starts the session on another machine from DASHCAL
   for (const bad of ['not json', '{"Work PC":{"url":"http://x","token":"t"}}', '{"work":{"url":"x","token":"t"}}', '{"work":{"url":"http://x"}}'])
     await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_REMOTE_AGENTS: bad })), /exited \(1\).*DASHCALL_REMOTE_AGENTS/s, bad);
 });
+
+test('the app lists the machines and its API calls go to the chosen one; speech stays on the main machine', async () => {
+  const got = [];
+  const work = http.createServer((req, res) => { got.push(req.url); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"from":"work"}'); });
+  await new Promise(r => work.listen(0, '127.0.0.1', r));
+  const agents = JSON.stringify({ work: { url: `http://127.0.0.1:${work.address().port}`, token: 'work-token', name: 'Work PC' }, lab: { url: 'http://127.0.0.1:9', token: 'x' } });
+  try {
+    await withWeb({ DASHCALL_REMOTE_AGENTS: agents, DASHCALL_AGENT_NAME: 'Home Mac' }, async b => {
+      const cookie = cookieOf(await postLogin(b, { password: PASSWORD }, '10.8.0.1'));
+      const api = (p, device, method = 'GET') => fetch(b + p, { method, headers: { cookie, ...(device == null ? {} : { 'x-dashcall-device': device }) } });
+      await assertError(await fetch(b + '/api/devices'), 401, 'login_required');
+      assert.deepEqual(await (await api('/api/devices')).json(), { devices: [{ id: '', name: 'Home Mac' }, { id: 'work', name: 'Work PC' }, { id: 'lab', name: 'lab' }] });
+      seen = [];
+      assert.deepEqual(await (await api('/api/sessions', 'work')).json(), { from: 'work' });
+      assert.deepEqual(got, ['/api/sessions']);
+      assert.deepEqual(seen, []);
+      for (const p of ['/api/stt', '/api/speak']) assert.deepEqual(await (await api(p, 'work', 'POST')).json(), { ok: true }, p);
+      assert.deepEqual(seen.map(s => s.url), ['/api/stt', '/api/speak']);
+      assert.deepEqual(await (await api('/api/sessions', '')).json(), { ok: true });
+      for (const bad of ['nope', 'constructor', '__proto__']) await assertError(await api('/api/sessions', bad), 404, 'unknown_device', bad);
+    });
+    // without other machines the list is just the main one
+    const cookie = cookieOf(await login(PASSWORD, '10.8.0.2'));
+    assert.deepEqual(await (await fetch(base + '/api/devices', { headers: { cookie } })).json(), { devices: [{ id: '', name: 'Main' }] });
+  } finally { work.close(); }
+  await assert.rejects(startServer('web/server.mjs', env({ DASHCALL_REMOTE_AGENTS: '{"work":{"url":"http://x","token":"t","name":""}}' })), /exited \(1\).*DASHCALL_REMOTE_AGENTS/s);
+});

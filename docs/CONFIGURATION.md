@@ -68,7 +68,8 @@ You don't set these. The agent passes them to each dispatcher run, and the `dash
 | `DASHCALL_SESSION_EPOCH` | `0` | no | Part of every session cookie's signature. Change it, for example from `0` to `1`, and restart to **sign out every device**. |
 | `DASHCALL_TOTP_SECRET` | none | no | Turns on [two-factor login](#two-factor-login): the base32 secret your authenticator app uses (at least 16 characters; spaces and case don't matter). Make one with `node scripts/totp-secret.mjs`. Setting, changing or removing it signs out every device. The web app refuses to start if the value isn't valid base32. |
 | `DASHCALL_SHORTCUT_TOKEN` | none | no | Turns on `POST /shortcut/remote` for a [home-screen shortcut](#home-screen-shortcut-for-a-remote-session). At least 32 characters (`openssl rand -hex 32`). It can only start a new remote session; it is not a login. |
-| `DASHCALL_REMOTE_AGENTS` | none | no | Other machines that run a Dashcall agent, for `POST /shortcut/remote/<name>`: JSON such as `{"work":{"url":"http://100.x.y.z:7420","token":"<that agent's DASHCALL_TOKEN>"}}`. Names use `a-z`, `0-9` and `-`. Only the shortcut uses them; the app itself still talks to `DASHCALL_AGENT_URL`. |
+| `DASHCALL_REMOTE_AGENTS` | none | no | [Other machines](#more-than-one-machine) that run a Dashcall agent: JSON such as `{"work":{"url":"http://100.x.y.z:7420","token":"<that agent's DASHCALL_TOKEN>","name":"Work PC"}}`. Ids use `a-z`, `0-9` and `-`; `name` is optional (shown in the app, default: the id). |
+| `DASHCALL_AGENT_NAME` | `Main` | no | What the machine picker calls the main machine (`DASHCALL_AGENT_URL`). |
 
 The web app exits at startup and lists the missing variables if any required one is unset. It also exits if
 `DASHCALL_SESSION_DAYS` or `DASHCALL_TOTP_SECRET` has an invalid value.
@@ -90,6 +91,17 @@ addresses from the web app's `login failed` log lines at your reverse proxy or f
 the counters. Don't sign out everywhere (or change the password) while the limit is being hit: no device could log
 back in until the attack stops.
 
+### More than one machine
+
+Dashcall can drive Claude Code sessions on several machines, for example a Mac at home and a work computer. Install
+the agent on each one ([INSTALL.md](INSTALL.md), the Mac part) with its own `DASHCALL_TOKEN`, make each reachable from
+the web server (the same Tailscale network), and list the extra ones in `DASHCALL_REMOTE_AGENTS` in `web/.env`.
+
+The app then shows a machine picker next to the logo. Everything follows the choice: sessions, new jobs, the remote
+session button, the dispatcher (Drive), brain and notifications; each machine keeps its own conversation. Only speech
+(speech-to-text and the voices) always runs on the main machine, so the other machines need no whisper, ffmpeg or
+TTS setup. Notifications are fetched from the machine that is selected.
+
 ### Home-screen shortcut for a remote session
 
 The **Remote session** button on the Sessions tab starts a new Claude Code session in your home folder (the
@@ -108,8 +120,7 @@ A tap takes about 15 seconds: the session starts on the Mac, then the Claude app
 nothing else: it can't read sessions or send prompts. Wrong tokens count against the same limits as failed logins.
 To revoke it, change or remove the variable and restart.
 
-**A button per machine.** Run a Dashcall agent on the second machine too, list it in `DASHCALL_REMOTE_AGENTS`, and
-make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The token
+**A button per machine.** With [more than one machine](#more-than-one-machine), make a second shortcut whose URL ends in `/shortcut/remote/<name>` (for example `/shortcut/remote/work`). The token
 is the same.
 
 ### Two-factor login

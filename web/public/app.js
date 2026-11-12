@@ -6,6 +6,11 @@ const store = {
 };
 const MIC_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>';
 
+// Which machine the app talks to: '' is the main one, the others come from GET /api/devices. Changing it reloads the
+// page, so it never changes while the page lives; what belongs to one machine (the conversation) is stored per machine.
+const device = store.get('device', '');
+const perDevice = k => (device ? k + '@' + device : k);
+
 // Every request has a timeout so a dead car connection can't leave the UI hanging forever.
 let inflight = null; // AbortController of the current voice pipeline request (tap to cancel)
 async function api(path, opts = {}) {
@@ -15,7 +20,7 @@ async function api(path, opts = {}) {
   const timer = setTimeout(() => ctl.abort(), opts.timeout || 25000);
   let r;
   try {
-    r = await fetch('/api' + path, { ...opts, signal: ctl.signal, headers: { 'content-type': 'application/json', ...(opts.headers || {}) } });
+    r = await fetch('/api' + path, { ...opts, signal: ctl.signal, headers: { 'content-type': 'application/json', ...(device ? { 'x-dashcall-device': device } : {}), ...(opts.headers || {}) } });
   } catch (e) {
     if (opts.signal?.aborted) throw cancelled();
     if (ctl.signal.aborted) throw Object.assign(new Error(t('errors.timeout')), { code: 'timeout', timedOut: true });
@@ -85,8 +90,8 @@ function unlockAudio() {
 }
 // The last answer, for the repeat button, and the language it was spoken in, so a repeat after a language switch keeps
 // its voice and subtitle matching. A `lastReply` saved without `lastReplyLang` (0.1.0) is repeated in the UI language.
-let lastSpoken = store.get('lastReply', ''), lastSpokenLang = store.get('lastReplyLang', null);
-function setLastSpoken(text, lang) { lastSpoken = text; lastSpokenLang = lang; store.set('lastReply', text); store.set('lastReplyLang', lang); }
+let lastSpoken = store.get(perDevice('lastReply'), ''), lastSpokenLang = store.get(perDevice('lastReplyLang'), null);
+function setLastSpoken(text, lang) { lastSpoken = text; lastSpokenLang = lang; store.set(perDevice('lastReply'), text); store.set(perDevice('lastReplyLang'), lang); }
 // Voice choice is per language; the old single 'voice' key was Turkish-only.
 const VOICES = { tr: [['tr-TR-EmelNeural', 'Emel'], ['tr-TR-AhmetNeural', 'Ahmet']], en: [['en-US-AvaNeural', 'Ava'], ['en-US-AndrewNeural', 'Andrew']] };
 const voiceFor = l => { const v = store.get('voice.' + l, l === 'tr' ? store.get('voice', null) : null); return v === 'local' || VOICES[l].some(x => x[0] === v) ? v : VOICES[l][0][0]; };
@@ -355,8 +360,8 @@ async function listen(onPhase, drive = false) {
 // ---------- drive mode ----------
 const talk = $('talk'), stateEl = $('state');
 let driveState = 'idle', driveLabel = null; // driveLabel: {key} (re-translated on language switch) or {text}
-let conversationId = store.get('conversationId', null);
-let history = store.get('history', []);
+let conversationId = store.get(perDevice('conversationId'), null);
+let history = store.get(perDevice('history'), []);
 function setDrive(s, label) {
   driveState = s;
   talk.className = 'talk' + (s === 'idle' ? '' : ' ' + s);
@@ -465,9 +470,9 @@ async function ask(text) {
     // Spoken right here, like a reply: its notification must not pop up again as unread next time the app opens.
     if (j.status === 'error' && j.notificationId) markRead([j.notificationId]);
     if (j.status === 'error') throw Object.assign(new Error(j.error || t('errors.generic')), { ready: !!(j.error && j.detail) });
-    conversationId = j.conversationId; store.set('conversationId', conversationId);
+    conversationId = j.conversationId; store.set(perDevice('conversationId'), conversationId);
     const reply = j.reply || t('drive.emptyReply');
-    history.push({ q: text, a: reply, ts: Date.now() }); history = history.slice(-30); store.set('history', history);
+    history.push({ q: text, a: reply, ts: Date.now() }); history = history.slice(-30); store.set(perDevice('history'), history);
     setLastSpoken(reply, lang);
     renderActions();
     if (j.notificationId) markRead([j.notificationId]); // delivered right here: don't count it as unread while it plays
@@ -516,7 +521,7 @@ $('repeat').onclick = async () => {
   unlockAudio();
   if (lastSpoken && driveState === 'idle' && await speak(lastSpoken, s => setDrive(s), lastSpokenLang in LOCALES ? lastSpokenLang : getLang())) idleSub();
 };
-$('newchat').onclick = () => { conversationId = null; store.set('conversationId', null); history = []; store.set('history', []); showSaid(''); idleSub('drive.newChatSub'); renderActions(); };
+$('newchat').onclick = () => { conversationId = null; store.set(perDevice('conversationId'), null); history = []; store.set(perDevice('history'), []); showSaid(''); idleSub('drive.newChatSub'); renderActions(); };
 $('typeform').onsubmit = e => {
   e.preventDefault(); unlockAudio();
   const v = $('typein').value.trim(); if (!v || driveState !== 'idle') return;
@@ -683,6 +688,18 @@ $('newform').onsubmit = async e => {
   $('n-go').disabled = false; $('n-go').textContent = t('new.start');
 };
 
+// ---------- machine picker ----------
+// Hidden with a single machine. A stored choice that no longer exists falls back to the main machine.
+function pickDevice(id) { store.set('device', id); location.reload(); }
+$('device').onchange = () => pickDevice($('device').value);
+api('/devices').then(d => {
+  const list = (d && d.devices) || [];
+  if (device && !list.some(x => x.id === device)) return pickDevice('');
+  if (list.length < 2) return;
+  $('device').innerHTML = list.map(x => `<option value="${esc(x.id)}"${x.id === device ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('device').value = device; $('device').hidden = false;
+}).catch(() => {});
+
 // ---------- remote session ----------
 // One tap: a new session in the home folder with /remote-control already on. The link opens from a tap of its own
 // (a sheet), because browsers block opening another app after a wait this long.
@@ -795,9 +812,9 @@ async function openNotif(n) {
   unlockAudio();
   if (!n.read) markRead([n.id]);
   show('drive');
-  if (n.conversationId) { conversationId = n.conversationId; store.set('conversationId', conversationId); }
+  if (n.conversationId) { conversationId = n.conversationId; store.set(perDevice('conversationId'), conversationId); }
   history.push({ q: n.kind === 'task' ? '🔔 ' + plain(n.title || t('notifs.taskFallback')) : n.q || t('notifs.fallbackQ'), a: n.text, ts: Date.now() });
-  history = history.slice(-30); store.set('history', history);
+  history = history.slice(-30); store.set(perDevice('history'), history);
   const lang = n.lang || getLang();
   setLastSpoken(n.text, lang);
   showSaid(history[history.length - 1].q); renderActions();

@@ -57,7 +57,7 @@ translated message for known codes (`errors.<code>` in `web/public/i18n.js`) and
 | `code_used` | 401 | Two-factor login is on and the one-time code (or an older one) was already used; wait for the next code |
 | `rate_limited` | 429 | 10 failed logins (or wrong shortcut tokens) from one IP, or 30 from all IPs together, in the last 15 minutes |
 | `bad_token` | 401 | Missing or wrong bearer token at `/shortcut/remote` |
-| `unknown_device` | 404 | `/shortcut/remote/<name>` names a machine that is not in `DASHCALL_REMOTE_AGENTS` |
+| `unknown_device` | 404 | `/shortcut/remote/<name>` or the `X-Dashcall-Device` header names a machine that is not in `DASHCALL_REMOTE_AGENTS` |
 | `cross_origin` | 403 | A login or non-GET API call that isn't same-origin |
 | `too_large` | 413 | The body is over 25 MB |
 | `agent_unreachable` | 502 | The agent didn't answer: it's down or unreachable, or the 120 s timeout passed |
@@ -291,7 +291,8 @@ unmuted. Errors: `key_required`, `not_found`.
 | `GET /login/config` | none | `{"totp": true}` when two-factor login is on (`DASHCALL_TOTP_SECRET`), so the login page shows the code field. |
 | `POST /logout` | same-origin | Clears the session cookie (204). |
 | `POST /shortcut/remote` | `Authorization: Bearer <DASHCALL_SHORTCUT_TOKEN>` | Only when `DASHCALL_SHORTCUT_TOKEN` is set. Forwards to the agent's `POST /api/sessions/remote` and returns its answer (`{"url": …}`). `POST /shortcut/remote/<name>` does the same on another machine listed in `DASHCALL_REMOTE_AGENTS` (error: `unknown_device`). For a phone home-screen shortcut; see [CONFIGURATION.md](CONFIGURATION.md#home-screen-shortcut-for-a-remote-session). Errors: `bad_token`, `rate_limited`, `agent_unreachable`, `agent_auth`, plus the agent's own. |
-| `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent. Errors: `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |
+| `GET /api/devices` | cookie | Answered by the web app itself: `{"devices": [{"id": "", "name": "Main"}, {"id": "work", "name": "Work PC"}]}`. The first is the main machine (`DASHCALL_AGENT_NAME`), the rest come from `DASHCALL_REMOTE_AGENTS`. |
+| `/api/*` (any method) | cookie; same-origin for non-GET | Forwarded to the agent: the main one, or with the header `X-Dashcall-Device: <id>` that machine's (`/api/stt` and `/api/speak` always go to the main one). Errors: `unknown_device`, `login_required`, `cross_origin`, `too_large`, `agent_unreachable`, `agent_auth`. |
 | `GET /*` | cookie | Static files from `web/public/`. Without a valid cookie, every path serves the login page, except `/login.js`, `/i18n.js`, `/style.css` and `/icon.svg`, plus the web app manifest and its icons (`/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`, `/apple-touch-icon.png`), which browsers fetch without cookies. |
 
 All static responses carry the security headers described in [ARCHITECTURE.md](ARCHITECTURE.md#security-model-briefly).
