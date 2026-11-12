@@ -83,7 +83,7 @@ function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST, storage: s
   function fetch(url, opts = {}) {
     let body = opts.body;
     if (typeof body === 'string') try { body = JSON.parse(body); } catch {}
-    const call = { method: opts.method || 'GET', path: String(url).replace(/^\/api/, '').split('?')[0], body };
+    const call = { method: opts.method || 'GET', path: String(url).replace(/^\/api/, '').split('?')[0], body, headers: opts.headers || {} };
     calls.push(call);
     const route = routes[`${call.method} ${call.path}`] ?? DEFAULTS[`${call.method} ${call.path}`] ?? (() => http(404, { error: 'not found', code: 'not_found' }));
     return new Promise((resolve, reject) => {
@@ -125,7 +125,7 @@ function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST, storage: s
   const storage = new Map(Object.entries(saved));
 
   const ctx = {
-    document, navigator, console, crypto, location: { href: '/' },
+    document, navigator, console, crypto, location: { href: '/', reloads: 0, reload() { this.reloads++; } },
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) },
     setTimeout: (fn, ms, ...a) => later(() => fn(...a), ms), clearTimeout: cancel,
     setInterval: (fn, ms) => { if (closed) return 0; const h = setInterval(fn, Math.max(1, ms / fast)); timers.add(h); return h; }, clearInterval: cancel,
@@ -148,6 +148,7 @@ function boot({ routes = {}, crypto = globalThis.crypto, fast = FAST, storage: s
     get: expr => vm.runInContext(expr, ctx), // reads the app's top-level state, e.g. get('driveState')
     calls: key => calls.filter(c => `${c.method} ${c.path}` === key),
     lastToast: () => dom.toasts.at(-1) ?? '',
+    stored: k => storage.get(k) ?? null,
     mics: () => select('[data-mic]'),
     recording: () => mic.recorders.at(-1)?.state === 'recording',
     tab: view => select('.tab').find(el => el.dataset.view === view).onclick(),
@@ -475,5 +476,38 @@ test('the remote session button starts one session and offers its link', async (
     assert.match(h.$('sheet-body').innerHTML, new RegExp(`<a [^>]*href="${url}"[^>]*>Open in Claude</a>`));
     assert.ok(!h.$('remote').disabled);
     assert.equal(h.$('remote').textContent, 'Remote session');
+  } finally { h.close(); }
+});
+
+test('the machine picker stays hidden with one machine, and a chosen machine is sent with every request', async () => {
+  const devices = { devices: [{ id: '', name: 'Home Mac' }, { id: 'work', name: 'Work <PC>' }] };
+  let h = boot({ routes: { 'GET /devices': () => ({ devices: devices.devices.slice(0, 1) }) } });
+  try {
+    await h.until(() => h.calls('GET /devices').length, 'the machine list');
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(h.$('device').hidden);
+    assert.equal(h.calls('GET /health')[0].headers['x-dashcall-device'], undefined);
+  } finally { h.close(); }
+
+  h = boot({ storage: { device: '"work"' }, routes: { 'GET /devices': () => devices, 'POST /ask': () => ({ id: 'j', status: 'running' }), 'GET /ask/j': () => ({ id: 'j', status: 'done', reply: 'ok', conversationId: CONV_A }) } });
+  try {
+    await h.until(() => !h.$('device').hidden, 'the picker');
+    assert.match(h.$('device').innerHTML, /<option value="work" selected>Work &lt;PC&gt;<\/option>/);
+    assert.equal(h.calls('GET /health')[0].headers['x-dashcall-device'], 'work');
+    // each machine keeps its own conversation
+    h.typeQuestion('hi');
+    await h.until(() => h.stored('conversationId@work'), 'the conversation to be saved');
+    assert.equal(h.stored('conversationId'), null);
+    // choosing another machine saves the choice and reloads the page
+    h.$('device').value = ''; h.$('device').onchange();
+    assert.equal(h.stored('device'), '""');
+    assert.equal(h.get('location.reloads'), 1);
+  } finally { h.close(); }
+
+  // a machine that was removed from the server's list falls back to the main one
+  h = boot({ storage: { device: '"gone"' }, routes: { 'GET /devices': () => devices } });
+  try {
+    await h.until(() => h.get('location.reloads') === 1, 'the fallback');
+    assert.equal(h.stored('device'), '""');
   } finally { h.close(); }
 });

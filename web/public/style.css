@@ -37,6 +37,7 @@ a.btn { display: flex; align-items: center; justify-content: center; text-decora
 .tabs::-webkit-scrollbar { display: none; }
 .tab { flex: none; border: 0; background: transparent; padding: 10px 16px; border-radius: 10px; color: var(--muted); font-weight: 600; cursor: pointer; min-height: 44px; }
 .tab.on { background: var(--panel2); color: var(--text); }
+.device { width: auto; max-width: 9.5em; min-height: 36px; padding: 4px 8px; margin-left: 4px; font-size: .85rem; font-weight: 600; border-radius: 10px; text-overflow: ellipsis; }
 .lang { flex: none; display: flex; border: 1px solid var(--line); border-radius: 10px; padding: 2px; gap: 2px; }
 .lang button { border: 0; background: transparent; color: var(--muted); font-weight: 700; font-size: .8rem; letter-spacing: .04em; min-width: 36px; min-height: 36px; padding: 0 6px; border-radius: 8px; cursor: pointer; }
 .lang button.on { background: var(--panel2); color: var(--text); }

@@ -43,6 +43,8 @@ try {
   await start('web', 'web/server.mjs', {
     PORT, DASHCALL_PASSWORD: 'demo', DASHCALL_SECRET: randomBytes(32).toString('hex'), DASHCALL_COOKIE_SECURE: '0',
     DASHCALL_AGENT_URL: `http://127.0.0.1:${agentPort}`, DASHCALL_AGENT_TOKEN: token,
+    // a second "machine" (the same mock agent) so the machine picker shows up in the demo
+    DASHCALL_AGENT_NAME: 'Home Mac', DASHCALL_REMOTE_AGENTS: JSON.stringify({ work: { url: `http://127.0.0.1:${agentPort}`, token, name: 'Work PC' } }),
   });
 } catch (e) { console.error(e.message); shutdown(1); }
 console.log(`\nOpen http://localhost:${PORT} — password: demo\n(Ctrl+C to stop)`);

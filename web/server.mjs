@@ -27,19 +27,23 @@ const TOTP_SECRET = process.env.DASHCALL_TOTP_SECRET;
 // Optional token for POST /shortcut/remote (a phone home-screen shortcut). It can do one thing only: start a new
 // session with remote control on. Unset = the endpoint does not exist.
 const SHORTCUT_TOKEN = process.env.DASHCALL_SHORTCUT_TOKEN;
-// Other machines that run a Dashcall agent, reachable as POST /shortcut/remote/<name> (one home-screen button per
-// machine). JSON: {"work": {"url": "http://100.x.y.z:7420", "token": "<that agent's DASHCALL_TOKEN>"}}.
+// Other machines that run a Dashcall agent. The app shows a machine picker and sends its choice with every API call;
+// the shortcut reaches them as POST /shortcut/remote/<name>.
+// JSON: {"work": {"url": "http://100.x.y.z:7420", "token": "<that agent's DASHCALL_TOKEN>", "name": "Work PC"}}.
+// DASHCALL_AGENT_NAME is what the picker calls the main machine (DASHCALL_AGENT_URL).
+const AGENT_NAME = process.env.DASHCALL_AGENT_NAME || 'Main';
 const REMOTE_AGENTS = parseRemoteAgents(process.env.DASHCALL_REMOTE_AGENTS);
 function parseRemoteAgents(raw) {
-  if (!raw) return {};
+  const agents = Object.create(null); // no inherited keys: a machine named "constructor" must simply be unknown
+  if (!raw) return agents;
   try {
-    const o = JSON.parse(raw);
-    for (const [name, a] of Object.entries(o)) {
-      if (!/^[a-z0-9-]{1,32}$/.test(name) || !/^https?:\/\//.test(a?.url) || typeof a.token !== 'string' || !a.token) throw new Error(name);
-      a.url = a.url.replace(/\/+$/, '');
+    for (const [id, a] of Object.entries(JSON.parse(raw))) {
+      if (!/^[a-z0-9-]{1,32}$/.test(id) || !/^https?:\/\//.test(a?.url) || typeof a.token !== 'string' || !a.token) throw new Error(id);
+      if (a.name != null && (typeof a.name !== 'string' || !a.name || a.name.length > 40)) throw new Error(id);
+      agents[id] = { url: a.url.replace(/\/+$/, ''), token: a.token, name: a.name || id };
     }
-    return o;
-  } catch { console.error('DASHCALL_REMOTE_AGENTS must be JSON like {"work":{"url":"http://100.x.y.z:7420","token":"…"}} (names: a-z, 0-9, -)'); process.exit(1); }
+    return agents;
+  } catch { console.error('DASHCALL_REMOTE_AGENTS must be JSON like {"work":{"url":"http://100.x.y.z:7420","token":"…"}} (ids: a-z, 0-9, -; optional "name")'); process.exit(1); }
 }
 const missing = ['DASHCALL_PASSWORD', 'DASHCALL_SECRET', 'DASHCALL_AGENT_URL', 'DASHCALL_AGENT_TOKEN'].filter(k => !process.env[k]);
 if (missing.length) { console.error('missing env:', missing.join(', '), '(see web/.env.example)'); process.exit(1); }
@@ -250,7 +254,15 @@ async function handle(req, res) {
   if (url.pathname.startsWith('/api/')) {
     if (!authed) return fail(res, 401, 'login_required', 'login required');
     if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) return fail(res, 403, 'cross_origin', 'cross-origin request refused');
-    return proxy(req, res, url);
+    // The machine picker: "" is the main machine, the others come from DASHCALL_REMOTE_AGENTS.
+    if (url.pathname === '/api/devices' && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ devices: [{ id: '', name: AGENT_NAME }, ...Object.entries(REMOTE_AGENTS).map(([id, a]) => ({ id, name: a.name }))] }));
+    }
+    // Speech (speech-to-text, voices) always runs on the main machine, so the others need no whisper, ffmpeg or TTS.
+    const device = /^\/api\/(stt|speak)$/.test(url.pathname) ? '' : String(req.headers['x-dashcall-device'] || '');
+    if (device && !REMOTE_AGENTS[device]) return fail(res, 404, 'unknown_device', 'no machine with that name in DASHCALL_REMOTE_AGENTS');
+    return proxy(req, res, url, device ? REMOTE_AGENTS[device] : undefined);
   }
 
   // Signed out, only the login page and what it needs are served.

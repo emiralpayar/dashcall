@@ -74,6 +74,8 @@ görünür. Demo varsayılan olarak sessizdir; cevapları tarayıcının kendi s
   linki gelir; Claude uygulamasından devam edersin. Kendi token'ıyla iPhone ana ekranına kısayol olarak da konur,
   her makine için ayrı bir buton olabilir
   ([kurulum](docs/CONFIGURATION.md#home-screen-shortcut-for-a-remote-session)).
+- **Birden fazla makine.** Agent'ı ikinci bir bilgisayara da kur, uygulamada makineyi seç
+  ([kurulum](docs/CONFIGURATION.md#more-than-one-machine)).
 - **Arka plan işleri.** "Şuna bak, bitince söyle." Dispatcher bir oturum başlatır ya da mevcut oturumu izler; iş
   bittiğinde, takıldığında ya da oturum kapandığında sana sesli bir özet gönderir.
 - **Bildirimler.** Her cevap ve arka plan sonucu saklanır; araba sürerken uygulamayı kapatsan da hiçbir şey kaybolmaz.

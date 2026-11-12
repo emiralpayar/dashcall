@@ -52,7 +52,7 @@ docs/                  user documentation, example configs
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs every test (186) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
+| `npm test` | Runs every test (188) with Node's built-in runner. Fast, offline, silent, no herdr or Claude needed. |
 | `node --test test/web.test.mjs` | Runs a single test file. |
 | `npm run check` | Syntax-checks every JavaScript file (`node --check`), including `agent/bin/dashcall`. |
 | `npm run demo` | Web app + mock agent at <http://localhost:8080>, password `demo`. Silent: subtitles only, no audio. Use it for all UI work. |
